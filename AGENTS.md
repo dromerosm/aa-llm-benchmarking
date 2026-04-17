@@ -41,6 +41,8 @@ Repository instructions for humans and coding agents working on this project.
 - Make focused changes that match the current product direction.
 - Preserve the existing visual language unless a redesign is explicitly requested.
 - Validate important user flows locally before finishing work.
+- Do not claim that a UI flow works unless it has been verified against the running app with the tools requested by the user.
+- If the user requests Playwright and DevTools validation, run both before reporting success. If DevTools MCP is unavailable or cannot attach to a page, state that explicitly instead of implying the check was completed.
 - When behavior changes, update documentation in the same change.
 
 ## Definition of Done

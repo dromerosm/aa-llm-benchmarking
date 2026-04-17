@@ -3,12 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Model Leaderboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Sans:wght@400;500;600&display=swap"
-      rel="stylesheet"
+    <title>Model Leaderboard | Artificial Analysis Explorer</title>
+    <meta
+      name="description"
+      content="Explore the latest Artificial Analysis model leaderboard with filters for intelligence, price, speed, latency, and creator."
     />
     <link rel="icon" href="/favicon.ico" sizes="any" type="image/x-icon" />
     <link rel="stylesheet" href="/styles.css" />
@@ -66,9 +64,12 @@
         </div>
       </header>
 
-      <section class="summary-grid" id="summary-grid"></section>
+      <section class="summary-grid" id="summary-grid" aria-labelledby="summary-grid-title">
+        <h2 id="summary-grid-title" class="sr-only">Leaderboard highlights</h2>
+      </section>
 
-      <section class="controls controls-primary">
+      <section class="controls controls-primary" aria-labelledby="leaderboard-filters-title">
+        <h2 id="leaderboard-filters-title" class="sr-only">Leaderboard filters</h2>
         <label class="control">
           <span>Search</span>
           <input
@@ -100,7 +101,8 @@
         </button>
       </section>
 
-      <section class="controls controls-secondary">
+      <section class="controls controls-secondary" aria-labelledby="leaderboard-options-title">
+        <h2 id="leaderboard-options-title" class="sr-only">Leaderboard display options</h2>
         <label class="control">
           <span>Sort by</span>
           <select id="sort-select">
@@ -216,7 +218,7 @@
         <p class="summary-label"></p>
         <div class="summary-content">
           <div>
-            <h3 class="summary-title"></h3>
+            <p class="summary-title"></p>
             <p class="summary-subtitle"></p>
           </div>
           <p class="summary-metric"></p>

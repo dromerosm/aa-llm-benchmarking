@@ -3,12 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Intelligence Timeline</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Sans:wght@400;500;600&display=swap"
-      rel="stylesheet"
+    <title>Intelligence Timeline | Artificial Analysis Explorer</title>
+    <meta
+      name="description"
+      content="Visualize Artificial Analysis model releases over time with intelligence, pricing, creator filters, and interactive details."
     />
     <link rel="icon" href="/favicon.ico" sizes="any" type="image/x-icon" />
     <link rel="stylesheet" href="/styles.css" />
@@ -26,8 +24,8 @@
           <h1>Intelligence Timeline</h1>
           <p class="hero-text">
             Release date on the X axis, intelligence on the Y axis, and bubble size
-            proportional to blended USD per 1M tokens. Every visible point is
-            labelled with the model name.
+            proportional to blended USD per 1M tokens. Key models are labelled
+            automatically, and every visible point keeps full hover and keyboard details.
           </p>
           <div class="hero-meta" id="timeline-hero-meta"></div>
         </div>
@@ -41,9 +39,16 @@
         </div>
       </header>
 
-      <section class="summary-grid" id="timeline-summary-grid"></section>
+      <section
+        class="summary-grid"
+        id="timeline-summary-grid"
+        aria-labelledby="timeline-summary-title"
+      >
+        <h2 id="timeline-summary-title" class="sr-only">Timeline highlights</h2>
+      </section>
 
-      <section class="controls timeline-controls">
+      <section class="controls timeline-controls" aria-labelledby="timeline-filters-title">
+        <h2 id="timeline-filters-title" class="sr-only">Timeline filters</h2>
         <div class="control control-multiselect">
           <span>Creators</span>
           <details id="timeline-creator-dropdown" class="control-dropdown">
@@ -104,6 +109,11 @@
           <input id="timeline-priced-only" type="checkbox" />
           <span>Only models with price data</span>
         </label>
+
+        <label class="toggle">
+          <input id="timeline-show-all-labels" type="checkbox" />
+          <span>Show all labels</span>
+        </label>
       </section>
 
       <section class="timeline-card">
@@ -118,6 +128,7 @@
               <span class="table-pill">X: Release date</span>
               <span class="table-pill">Y: Intelligence</span>
               <span class="table-pill">Size: Blended USD/1M</span>
+              <span class="table-pill">Labels: Adaptive</span>
             </div>
           </div>
         </div>
@@ -180,7 +191,7 @@
         <p class="summary-label"></p>
         <div class="summary-content">
           <div>
-            <h3 class="summary-title"></h3>
+            <p class="summary-title"></p>
             <p class="summary-subtitle"></p>
           </div>
           <p class="summary-metric"></p>

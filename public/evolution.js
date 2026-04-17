@@ -21,6 +21,7 @@ const elements = {
   minIntelligenceInput: document.querySelector("#timeline-min-intelligence"),
   searchInput: document.querySelector("#timeline-search-input"),
   pricedOnly: document.querySelector("#timeline-priced-only"),
+  showAllLabels: document.querySelector("#timeline-show-all-labels"),
   caption: document.querySelector("#timeline-caption"),
   updated: document.querySelector("#timeline-updated"),
   chart: document.querySelector("#timeline-chart"),
@@ -35,6 +36,11 @@ const chartConfig = {
   marginRight: 250,
   marginBottom: 90,
   marginLeft: 95,
+};
+const LABEL_LIMITS = {
+  medium: 120,
+  dense: 88,
+  veryDense: 72,
 };
 
 const numberFormat = new Intl.NumberFormat("en-US", {
@@ -342,6 +348,100 @@ function buildLabelPlacements(points) {
   }
 }
 
+function addPointsUntil(selected, maxLabels, list, perRunLimit = list.length) {
+  let added = 0;
+
+  for (const point of list) {
+    if (selected.size >= maxLabels || added >= perRunLimit) {
+      break;
+    }
+
+    if (!selected.has(point.pointIndex)) {
+      selected.add(point.pointIndex);
+      added += 1;
+    }
+  }
+}
+
+function getLabelBudget(pointCount) {
+  if (pointCount <= LABEL_LIMITS.medium) {
+    return pointCount;
+  }
+
+  if (pointCount <= 220) {
+    return LABEL_LIMITS.medium;
+  }
+
+  if (pointCount <= 340) {
+    return LABEL_LIMITS.dense;
+  }
+
+  return LABEL_LIMITS.veryDense;
+}
+
+function selectLabelPointIndexes(points) {
+  if (elements.showAllLabels.checked) {
+    return new Set(points.map((point) => point.pointIndex));
+  }
+
+  const maxLabels = getLabelBudget(points.length);
+  if (points.length <= maxLabels) {
+    return new Set(points.map((point) => point.pointIndex));
+  }
+
+  const selected = new Set();
+  const search = elements.searchInput.value.trim().toLowerCase();
+  const byIntelligence = [...points].sort((a, b) => b.intelligence - a.intelligence);
+  const byRecent = [...points].sort(
+    (a, b) => new Date(b.releaseDate).getTime() - new Date(a.releaseDate).getTime(),
+  );
+  const byPrice = [...points]
+    .filter(
+      (point) =>
+        point.priceBlended !== null &&
+        point.priceBlended !== undefined &&
+        !Number.isNaN(point.priceBlended),
+    )
+    .sort((a, b) => b.priceBlended - a.priceBlended);
+  const topPerCreator = [];
+  const seenCreators = new Set();
+
+  for (const point of byIntelligence) {
+    if (seenCreators.has(point.creator)) {
+      continue;
+    }
+
+    seenCreators.add(point.creator);
+    topPerCreator.push(point);
+  }
+
+  if (search) {
+    const matchingPoints = points.filter((point) =>
+      `${point.name} ${point.creator}`.toLowerCase().includes(search),
+    );
+    addPointsUntil(selected, maxLabels, matchingPoints, Math.min(matchingPoints.length, 36));
+  }
+
+  addPointsUntil(selected, maxLabels, topPerCreator, Math.min(topPerCreator.length, 24));
+  addPointsUntil(selected, maxLabels, byIntelligence, Math.ceil(maxLabels * 0.34));
+  addPointsUntil(selected, maxLabels, byPrice, Math.ceil(maxLabels * 0.16));
+  addPointsUntil(selected, maxLabels, byRecent, Math.ceil(maxLabels * 0.2));
+
+  const remaining = maxLabels - selected.size;
+  if (remaining > 0) {
+    const step = points.length / remaining;
+
+    for (let index = 0; index < remaining; index += 1) {
+      const point = points[Math.min(points.length - 1, Math.floor(index * step))];
+      if (point) {
+        selected.add(point.pointIndex);
+      }
+    }
+  }
+
+  return selected;
+}
+
 function buildTooltipMarkup(model, colors) {
   const rows = [
     ["Creator", model.creator || "—"],
@@ -492,36 +592,8 @@ function hideTooltip() {
   elements.tooltip.setAttribute("aria-hidden", "true");
 }
 
-function bindPointInteractions() {
-  const points = elements.chart.querySelectorAll(".timeline-point");
-
-  for (const point of points) {
-    const circle = point.querySelector("circle");
-
-    if (circle) {
-      circle.addEventListener("pointerenter", (event) => {
-        showTooltip(point, event.clientX, event.clientY);
-      });
-
-      circle.addEventListener("pointermove", (event) => {
-        if (!elements.tooltip.hidden) {
-          positionTooltip(event.clientX, event.clientY);
-        }
-      });
-
-      circle.addEventListener("pointerleave", () => {
-        hideTooltip();
-      });
-    }
-
-    point.addEventListener("focusin", () => {
-      showTooltipFromFocus(point);
-    });
-
-    point.addEventListener("focusout", () => {
-      hideTooltip();
-    });
-  }
+function findTimelinePoint(target) {
+  return target instanceof Element ? target.closest(".timeline-point") : null;
 }
 
 function renderChart() {
@@ -535,7 +607,9 @@ function renderChart() {
         No models match the current filters.
       </text>
     `;
-    return;
+    return {
+      labelledCount: 0,
+    };
   }
 
   const dateValues = visible.map((model) => new Date(model.releaseDate).getTime());
@@ -555,7 +629,7 @@ function renderChart() {
   const xScale = createLinearScale(xMin, xMax, chartConfig.marginLeft, chartConfig.marginLeft + plotWidth);
   const yScale = createLinearScale(yMin, yMax, chartConfig.marginTop + plotHeight, chartConfig.marginTop);
 
-  const points = visible.map((model) => {
+  const points = visible.map((model, pointIndex) => {
     const cx = xScale(new Date(model.releaseDate).getTime());
     const cy = yScale(model.intelligence);
     const r = radiusScale(model.priceBlended, maxPrice);
@@ -568,6 +642,7 @@ function renderChart() {
 
     return {
       ...model,
+      pointIndex,
       cx,
       cy,
       r,
@@ -578,7 +653,9 @@ function renderChart() {
     };
   });
 
-  buildLabelPlacements(points);
+  const labelledPointIndexes = selectLabelPointIndexes(points);
+  const labelledPoints = points.filter((point) => labelledPointIndexes.has(point.pointIndex));
+  buildLabelPlacements(labelledPoints);
   const missingPricePatterns = [...new Map(
     points
       .filter((point) => point.hasZeroOrMissingPrice)
@@ -648,7 +725,7 @@ function renderChart() {
       ${points
         .map(
           (point, index) => `
-            <g class="timeline-point" tabindex="0" data-point-index="${index}" aria-label="${escapeHtml(
+            <g class="timeline-point" role="img" tabindex="0" data-point-index="${index}" aria-label="${escapeHtml(
               `${point.name}, ${point.creator}, released ${formatDate(point.releaseDate)}, intelligence ${formatMetric(
                 point.intelligence,
               )}`,
@@ -661,12 +738,16 @@ function renderChart() {
                 stroke="${point.colors.stroke}"
                 stroke-width="2"
               ></circle>
-              <text
-                x="${point.labelX}"
-                y="${point.labelY}"
-                fill="${point.colors.label}"
-                class="timeline-label"
-              >${escapeHtml(point.label)}</text>
+              ${labelledPointIndexes.has(point.pointIndex)
+                ? `
+                  <text
+                    x="${point.labelX}"
+                    y="${point.labelY}"
+                    fill="${point.colors.label}"
+                    class="timeline-label"
+                  >${escapeHtml(point.label)}</text>
+                `
+                : ""}
             </g>
           `,
         )
@@ -674,7 +755,9 @@ function renderChart() {
     </g>
   `;
 
-  bindPointInteractions();
+  return {
+    labelledCount: labelledPointIndexes.size,
+  };
 }
 
 function applyFilters() {
@@ -695,7 +778,10 @@ function applyFilters() {
     )
     .sort((a, b) => new Date(a.releaseDate) - new Date(b.releaseDate));
 
-  elements.caption.textContent = `${state.visibleModels.length} labelled bubbles shown`;
+  const chartState = renderChart();
+  elements.caption.textContent = elements.showAllLabels.checked
+    ? `${state.visibleModels.length} visible points · all labels shown`
+    : `${state.visibleModels.length} visible points · ${chartState.labelledCount} labels shown`;
   elements.updated.textContent = state.refreshedAt
     ? `Updated: ${new Intl.DateTimeFormat("en-US", {
         dateStyle: "medium",
@@ -716,7 +802,6 @@ function applyFilters() {
   elements.statusValue.textContent = maxPrice !== null ? formatMoney(maxPrice) : "No price";
 
   renderSummary();
-  renderChart();
 }
 
 async function loadModels() {
@@ -769,9 +854,49 @@ function bindEvents() {
       elements.creatorDropdown.open = false;
     }
   }, true);
+  elements.chart.addEventListener("pointerover", (event) => {
+    const point = findTimelinePoint(event.target);
+    if (point) {
+      showTooltip(point, event.clientX, event.clientY);
+    }
+  });
+  elements.chart.addEventListener("pointermove", (event) => {
+    const point = findTimelinePoint(event.target);
+    if (!point) {
+      return;
+    }
+
+    if (elements.tooltip.hidden) {
+      showTooltip(point, event.clientX, event.clientY);
+      return;
+    }
+
+    positionTooltip(event.clientX, event.clientY);
+  });
+  elements.chart.addEventListener("pointerout", (event) => {
+    const point = findTimelinePoint(event.target);
+    const relatedPoint = findTimelinePoint(event.relatedTarget);
+    if (point && point !== relatedPoint) {
+      hideTooltip();
+    }
+  });
+  elements.chart.addEventListener("focusin", (event) => {
+    const point = findTimelinePoint(event.target);
+    if (point) {
+      showTooltipFromFocus(point);
+    }
+  });
+  elements.chart.addEventListener("focusout", (event) => {
+    const point = findTimelinePoint(event.target);
+    const relatedPoint = findTimelinePoint(event.relatedTarget);
+    if (point && point !== relatedPoint) {
+      hideTooltip();
+    }
+  });
   elements.minIntelligenceInput.addEventListener("input", applyFilters);
   elements.searchInput.addEventListener("input", applyFilters);
   elements.pricedOnly.addEventListener("change", applyFilters);
+  elements.showAllLabels.addEventListener("change", applyFilters);
 }
 
 async function init() {

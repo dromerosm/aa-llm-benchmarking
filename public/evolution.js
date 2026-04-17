@@ -5,6 +5,10 @@ const state = {
   promptOptions: {},
   cache: null,
   apiStatus: null,
+  zoomDomain: null,
+  chartView: null,
+  chartPan: null,
+  suppressChartClickUntil: 0,
 };
 
 const SESSION_CACHE_KEY = "aa-models-payload-v1";
@@ -26,6 +30,7 @@ const elements = {
   pricedOnly: document.querySelector("#timeline-priced-only"),
   showAllLabels: document.querySelector("#timeline-show-all-labels"),
   caption: document.querySelector("#timeline-caption"),
+  chartWrap: document.querySelector(".timeline-chart-wrap"),
   chart: document.querySelector("#timeline-chart"),
   tooltip: document.querySelector("#timeline-tooltip"),
   summaryTemplate: document.querySelector("#timeline-summary-card-template"),
@@ -45,6 +50,9 @@ const LABEL_LIMITS = {
   veryDense: 72,
 };
 const DEFAULT_TOP_CREATOR_COUNT = 10;
+const MIN_X_ZOOM_SPAN_MS = 1000 * 60 * 60 * 24 * 45;
+const MIN_Y_ZOOM_SPAN = 6;
+const PAN_DRAG_THRESHOLD_PX = 6;
 
 const numberFormat = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
@@ -490,15 +498,102 @@ function createTicks(minDate, maxDate, count = 6) {
   return Array.from({ length: count }, (_, index) => new Date(start + index * step));
 }
 
+function getChartPlotGeometry() {
+  if (!state.chartView) {
+    return null;
+  }
+
+  const rect = elements.chart.getBoundingClientRect();
+  const scaleX = rect.width / chartConfig.width;
+  const scaleY = rect.height / chartConfig.height;
+
+  return {
+    rect,
+    plotLeft: rect.left + chartConfig.marginLeft * scaleX,
+    plotRight: rect.left + (chartConfig.width - chartConfig.marginRight) * scaleX,
+    plotTop: rect.top + chartConfig.marginTop * scaleY,
+    plotBottom: rect.top + (chartConfig.height - chartConfig.marginBottom) * scaleY,
+  };
+}
+
+function isPointerInsidePlot(clientX, clientY, geometry) {
+  return (
+    geometry &&
+    clientX >= geometry.plotLeft &&
+    clientX <= geometry.plotRight &&
+    clientY >= geometry.plotTop &&
+    clientY <= geometry.plotBottom
+  );
+}
+
+function getBaseChartDomain(models) {
+  const dateValues = models.map((model) => new Date(model.releaseDate).getTime());
+  const intelligenceValues = models.map((model) => model.intelligence);
+
+  return {
+    xMin: Math.min(...dateValues),
+    xMax: Math.max(...dateValues),
+    yMin: Math.max(0, Math.floor(Math.min(...intelligenceValues) - 3)),
+    yMax: Math.ceil(Math.max(...intelligenceValues) + 2),
+  };
+}
+
+function normalizeZoomDomain(baseDomain, zoomDomain) {
+  if (!zoomDomain) {
+    return baseDomain;
+  }
+
+  const baseXSpan = baseDomain.xMax - baseDomain.xMin;
+  const baseYSpan = baseDomain.yMax - baseDomain.yMin;
+  const minXSpan = Math.min(MIN_X_ZOOM_SPAN_MS, baseXSpan);
+  const minYSpan = Math.min(MIN_Y_ZOOM_SPAN, baseYSpan);
+
+  let xSpan = Math.min(baseXSpan, Math.max(minXSpan, zoomDomain.xMax - zoomDomain.xMin));
+  let ySpan = Math.min(baseYSpan, Math.max(minYSpan, zoomDomain.yMax - zoomDomain.yMin));
+  let xMin = zoomDomain.xMin;
+  let yMin = zoomDomain.yMin;
+
+  if (xMin < baseDomain.xMin) {
+    xMin = baseDomain.xMin;
+  }
+  if (xMin + xSpan > baseDomain.xMax) {
+    xMin = baseDomain.xMax - xSpan;
+  }
+
+  if (yMin < baseDomain.yMin) {
+    yMin = baseDomain.yMin;
+  }
+  if (yMin + ySpan > baseDomain.yMax) {
+    yMin = baseDomain.yMax - ySpan;
+  }
+
+  const normalized = {
+    xMin,
+    xMax: xMin + xSpan,
+    yMin,
+    yMax: yMin + ySpan,
+  };
+
+  const isFullX = Math.abs(normalized.xMin - baseDomain.xMin) < 1 && Math.abs(normalized.xMax - baseDomain.xMax) < 1;
+  const isFullY =
+    Math.abs(normalized.yMin - baseDomain.yMin) < 0.001 &&
+    Math.abs(normalized.yMax - baseDomain.yMax) < 0.001;
+
+  return isFullX && isFullY ? baseDomain : normalized;
+}
+
 function buildLabelPlacements(points) {
   const sorted = [...points].sort((a, b) => b.intelligence - a.intelligence);
   const placedBoxes = [];
   const labelHeight = 14;
   const labelGap = 8;
+  const labelPaddingX = 6;
+  const labelPaddingY = 4;
   const minX = chartConfig.marginLeft + 8;
   const maxX = chartConfig.width - chartConfig.marginRight + 205;
   const minY = chartConfig.marginTop + 14;
   const maxY = chartConfig.height - chartConfig.marginBottom - 12;
+  const placedPointIndexes = new Set();
 
   function clamp(value, lower, upper) {
     return Math.max(lower, Math.min(upper, value));
@@ -516,24 +611,32 @@ function buildLabelPlacements(points) {
 
   for (const point of sorted) {
     const labelWidth = Math.min(220, point.label.length * 6.7 + 8);
-    const offset = point.r + labelGap;
-    const candidatePositions = [
-      { x: point.cx + offset, y: point.cy - offset },
-      { x: point.cx + offset, y: point.cy + 4 },
-      { x: point.cx + offset, y: point.cy + offset + 8 },
-      { x: point.cx - labelWidth - offset, y: point.cy - offset },
-      { x: point.cx - labelWidth - offset, y: point.cy + 4 },
-      { x: point.cx - labelWidth - offset, y: point.cy + offset + 8 },
-      { x: point.cx - labelWidth / 2, y: point.cy - offset - 12 },
-      { x: point.cx - labelWidth / 2, y: point.cy + offset + 14 },
-    ].map((candidate) => {
+    const baseOffset = point.r + labelGap;
+    const distanceSteps = [0, 14, 28, 44];
+    const candidateSeeds = [];
+
+    for (const step of distanceSteps) {
+      const offset = baseOffset + step;
+      candidateSeeds.push(
+        { x: point.cx + offset, y: point.cy - offset },
+        { x: point.cx + offset, y: point.cy + 4 },
+        { x: point.cx + offset, y: point.cy + offset + 10 },
+        { x: point.cx - labelWidth - offset, y: point.cy - offset },
+        { x: point.cx - labelWidth - offset, y: point.cy + 4 },
+        { x: point.cx - labelWidth - offset, y: point.cy + offset + 10 },
+        { x: point.cx - labelWidth / 2, y: point.cy - offset - 12 },
+        { x: point.cx - labelWidth / 2, y: point.cy + offset + 16 },
+      );
+    }
+
+    const candidatePositions = candidateSeeds.map((candidate) => {
       const x = clamp(candidate.x, minX, maxX - labelWidth);
       const y = clamp(candidate.y, minY, maxY);
       const box = {
-        left: x - 4,
-        right: x + labelWidth + 4,
-        top: y - labelHeight,
-        bottom: y + 6,
+        left: x - labelPaddingX,
+        right: x + labelWidth + labelPaddingX,
+        top: y - labelHeight - labelPaddingY,
+        bottom: y + labelPaddingY,
       };
       const dx = x - point.cx;
       const dy = y - point.cy;
@@ -546,19 +649,18 @@ function buildLabelPlacements(points) {
       };
     });
 
-    const bestCandidate = candidatePositions
-      .sort((left, right) => {
-        if (left.intersects !== right.intersects) {
-          return Number(left.intersects) - Number(right.intersects);
-        }
-
-        return left.distance - right.distance;
-      })[0];
+    const bestCandidate = candidatePositions.find((candidate) => !candidate.intersects);
+    if (!bestCandidate) {
+      continue;
+    }
 
     placedBoxes.push(bestCandidate.box);
+    placedPointIndexes.add(point.pointIndex);
     point.labelX = bestCandidate.x;
     point.labelY = bestCandidate.y;
   }
+
+  return placedPointIndexes;
 }
 
 function addPointsUntil(selected, maxLabels, list, perRunLimit = list.length, options = {}) {
@@ -798,8 +900,8 @@ function positionTooltip(clientX, clientY) {
 }
 
 function showTooltip(pointElement, clientX, clientY) {
-  const pointIndex = Number(pointElement.dataset.pointIndex);
-  const model = state.visibleModels[pointIndex];
+  const modelIndex = Number(pointElement.dataset.modelIndex);
+  const model = state.visibleModels[modelIndex];
   if (!model) {
     return;
   }
@@ -835,8 +937,8 @@ function findTimelinePoint(target) {
 }
 
 function openModelDetails(pointElement) {
-  const pointIndex = Number(pointElement.dataset.pointIndex);
-  const model = state.visibleModels[pointIndex];
+  const modelIndex = Number(pointElement.dataset.modelIndex);
+  const model = state.visibleModels[modelIndex];
   if (!model?.detailsUrl) {
     return;
   }
@@ -849,6 +951,7 @@ function renderChart() {
   hideTooltip();
 
   if (!visible.length) {
+    state.chartView = null;
     elements.chart.innerHTML = `
       <rect x="0" y="0" width="${chartConfig.width}" height="${chartConfig.height}" rx="28" fill="rgba(255,255,255,0.72)"></rect>
       <text x="${chartConfig.width / 2}" y="${chartConfig.height / 2}" text-anchor="middle" class="timeline-empty">
@@ -857,27 +960,78 @@ function renderChart() {
     `;
     return {
       labelledCount: 0,
+      visibleCount: 0,
     };
   }
 
-  const dateValues = visible.map((model) => new Date(model.releaseDate).getTime());
-  const intelligenceValues = visible.map((model) => model.intelligence);
-  const positivePrices = visible
-    .map((model) => model.priceBlended)
+  const baseDomain = getBaseChartDomain(visible);
+  const displayDomain = normalizeZoomDomain(baseDomain, state.zoomDomain);
+  state.zoomDomain =
+    displayDomain.xMin === baseDomain.xMin &&
+    displayDomain.xMax === baseDomain.xMax &&
+    displayDomain.yMin === baseDomain.yMin &&
+    displayDomain.yMax === baseDomain.yMax
+      ? null
+      : displayDomain;
+
+  const zoomedVisible = visible
+    .map((model, modelIndex) => ({ model, modelIndex }))
+    .filter(({ model }) => {
+      const releaseTime = new Date(model.releaseDate).getTime();
+      return (
+        releaseTime >= displayDomain.xMin &&
+        releaseTime <= displayDomain.xMax &&
+        model.intelligence >= displayDomain.yMin &&
+        model.intelligence <= displayDomain.yMax
+      );
+    });
+
+  if (!zoomedVisible.length) {
+    state.chartView = {
+      baseDomain,
+      displayDomain,
+      plotWidth: chartConfig.width - chartConfig.marginLeft - chartConfig.marginRight,
+      plotHeight: chartConfig.height - chartConfig.marginTop - chartConfig.marginBottom,
+    };
+    elements.chart.innerHTML = `
+      <rect x="0" y="0" width="${chartConfig.width}" height="${chartConfig.height}" rx="28" fill="rgba(255,255,255,0.72)"></rect>
+      <text x="${chartConfig.width / 2}" y="${chartConfig.height / 2}" text-anchor="middle" class="timeline-empty">
+        No models in the current zoom window.
+      </text>
+    `;
+    return {
+      labelledCount: 0,
+      visibleCount: 0,
+    };
+  }
+
+  const positivePrices = zoomedVisible
+    .map(({ model }) => model.priceBlended)
     .filter((value) => value !== null && value !== undefined && !Number.isNaN(value) && value > 0);
   const maxPrice = positivePrices.length ? Math.max(...positivePrices) : 0;
 
-  const xMin = Math.min(...dateValues);
-  const xMax = Math.max(...dateValues);
-  const yMin = Math.max(0, Math.floor(Math.min(...intelligenceValues) - 3));
-  const yMax = Math.ceil(Math.max(...intelligenceValues) + 2);
-
   const plotWidth = chartConfig.width - chartConfig.marginLeft - chartConfig.marginRight;
   const plotHeight = chartConfig.height - chartConfig.marginTop - chartConfig.marginBottom;
-  const xScale = createLinearScale(xMin, xMax, chartConfig.marginLeft, chartConfig.marginLeft + plotWidth);
-  const yScale = createLinearScale(yMin, yMax, chartConfig.marginTop + plotHeight, chartConfig.marginTop);
+  const xScale = createLinearScale(
+    displayDomain.xMin,
+    displayDomain.xMax,
+    chartConfig.marginLeft,
+    chartConfig.marginLeft + plotWidth,
+  );
+  const yScale = createLinearScale(
+    displayDomain.yMin,
+    displayDomain.yMax,
+    chartConfig.marginTop + plotHeight,
+    chartConfig.marginTop,
+  );
+  state.chartView = {
+    baseDomain,
+    displayDomain,
+    plotWidth,
+    plotHeight,
+  };
 
-  const points = visible.map((model, pointIndex) => {
+  const points = zoomedVisible.map(({ model, modelIndex }, pointIndex) => {
     const cx = xScale(new Date(model.releaseDate).getTime());
     const cy = yScale(model.intelligence);
     const r = radiusScale(model.priceBlended, maxPrice);
@@ -890,6 +1044,7 @@ function renderChart() {
 
     return {
       ...model,
+      modelIndex,
       pointIndex,
       cx,
       cy,
@@ -902,17 +1057,20 @@ function renderChart() {
     };
   });
 
-  const labelledPointIndexes = selectLabelPointIndexes(points);
-  const labelledPoints = points.filter((point) => labelledPointIndexes.has(point.pointIndex));
-  buildLabelPlacements(labelledPoints);
+  const selectedLabelPointIndexes = selectLabelPointIndexes(points);
+  const selectedLabelPoints = points.filter((point) => selectedLabelPointIndexes.has(point.pointIndex));
+  const placedLabelPointIndexes = buildLabelPlacements(selectedLabelPoints);
   const missingPricePatterns = [...new Map(
     points
       .filter((point) => point.hasZeroOrMissingPrice)
       .map((point) => [point.patternId, point]),
   ).values()];
 
-  const dateTicks = createTicks(new Date(xMin), new Date(xMax));
-  const yTicks = Array.from({ length: 6 }, (_, index) => yMin + ((yMax - yMin) / 5) * index);
+  const dateTicks = createTicks(new Date(displayDomain.xMin), new Date(displayDomain.xMax));
+  const yTicks = Array.from(
+    { length: 6 },
+    (_, index) => displayDomain.yMin + ((displayDomain.yMax - displayDomain.yMin) / 5) * index,
+  );
 
   elements.chart.innerHTML = `
     <defs>
@@ -978,7 +1136,7 @@ function renderChart() {
               `${point.name}, ${point.creator}, released ${formatDate(point.releaseDate)}, intelligence ${formatMetric(
                 point.intelligence,
               )}. Open model page in Artificial Analysis.`,
-            )}">
+            )}" data-model-index="${point.modelIndex}">
               <circle
                 cx="${point.cx}"
                 cy="${point.cy}"
@@ -987,7 +1145,7 @@ function renderChart() {
                 stroke="${point.colors.stroke}"
                 stroke-width="2"
               ></circle>
-              ${labelledPointIndexes.has(point.pointIndex)
+              ${placedLabelPointIndexes.has(point.pointIndex)
                 ? `
                   <text
                     x="${point.labelX}"
@@ -1005,8 +1163,152 @@ function renderChart() {
   `;
 
   return {
-    labelledCount: labelledPointIndexes.size,
+    labelledCount: placedLabelPointIndexes.size,
+    visibleCount: zoomedVisible.length,
   };
+}
+
+function renderTimeline() {
+  const chartState = renderChart();
+  const isZoomed = Boolean(state.zoomDomain);
+  elements.chartWrap.classList.toggle("is-pan-enabled", isZoomed);
+  if (!isZoomed) {
+    elements.chartWrap.classList.remove("is-panning");
+  }
+  elements.caption.textContent = elements.showAllLabels.checked
+    ? `${chartState.visibleCount} visible points${isZoomed ? " in zoom" : ""} · all labels shown`
+    : `${chartState.visibleCount} visible points${isZoomed ? " in zoom" : ""} · ${chartState.labelledCount} labels shown`;
+}
+
+function zoomChartAtPointer(event) {
+  if (!state.chartView) {
+    return;
+  }
+
+  const geometry = getChartPlotGeometry();
+
+  if (!isPointerInsidePlot(event.clientX, event.clientY, geometry)) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const { baseDomain, displayDomain } = state.chartView;
+  const xRatio = (event.clientX - geometry.plotLeft) / (geometry.plotRight - geometry.plotLeft);
+  const yRatio = (event.clientY - geometry.plotTop) / (geometry.plotBottom - geometry.plotTop);
+  const currentXSpan = displayDomain.xMax - displayDomain.xMin;
+  const currentYSpan = displayDomain.yMax - displayDomain.yMin;
+  const zoomFactor = event.deltaY < 0 ? 0.82 : 1.22;
+  const newXSpan = currentXSpan * zoomFactor;
+  const newYSpan = currentYSpan * zoomFactor;
+  const anchorX = displayDomain.xMin + currentXSpan * xRatio;
+  const anchorY = displayDomain.yMax - currentYSpan * yRatio;
+  const anchorYRatioFromMin = 1 - yRatio;
+  const nextDomain = normalizeZoomDomain(baseDomain, {
+    xMin: anchorX - newXSpan * xRatio,
+    xMax: anchorX + newXSpan * (1 - xRatio),
+    yMin: anchorY - newYSpan * anchorYRatioFromMin,
+    yMax: anchorY + newYSpan * yRatio,
+  });
+
+  state.zoomDomain =
+    nextDomain.xMin === baseDomain.xMin &&
+    nextDomain.xMax === baseDomain.xMax &&
+    nextDomain.yMin === baseDomain.yMin &&
+    nextDomain.yMax === baseDomain.yMax
+      ? null
+      : nextDomain;
+
+  renderTimeline();
+}
+
+function startChartPan(event) {
+  if (event.button !== 0 || !state.zoomDomain || !state.chartView) {
+    return;
+  }
+
+  const geometry = getChartPlotGeometry();
+  if (!isPointerInsidePlot(event.clientX, event.clientY, geometry)) {
+    return;
+  }
+
+  state.chartPan = {
+    pointerId: event.pointerId,
+    startClientX: event.clientX,
+    startClientY: event.clientY,
+    startDomain: { ...state.chartView.displayDomain },
+    baseDomain: state.chartView.baseDomain,
+    moved: false,
+  };
+}
+
+function moveChartPan(event) {
+  if (!state.chartPan || event.pointerId !== state.chartPan.pointerId) {
+    return;
+  }
+
+  const geometry = getChartPlotGeometry();
+  if (!geometry) {
+    return;
+  }
+
+  const deltaX = event.clientX - state.chartPan.startClientX;
+  const deltaY = event.clientY - state.chartPan.startClientY;
+
+  if (!state.chartPan.moved && Math.hypot(deltaX, deltaY) < PAN_DRAG_THRESHOLD_PX) {
+    return;
+  }
+
+  if (!state.chartPan.moved) {
+    state.chartPan.moved = true;
+    elements.chartWrap.setPointerCapture?.(event.pointerId);
+    hideTooltip();
+    elements.chartWrap.classList.add("is-panning");
+  }
+
+  const xSpan = state.chartPan.startDomain.xMax - state.chartPan.startDomain.xMin;
+  const ySpan = state.chartPan.startDomain.yMax - state.chartPan.startDomain.yMin;
+  const xUnitsPerPixel = xSpan / (geometry.plotRight - geometry.plotLeft);
+  const yUnitsPerPixel = ySpan / (geometry.plotBottom - geometry.plotTop);
+  const nextDomain = normalizeZoomDomain(state.chartPan.baseDomain, {
+    xMin: state.chartPan.startDomain.xMin - deltaX * xUnitsPerPixel,
+    xMax: state.chartPan.startDomain.xMax - deltaX * xUnitsPerPixel,
+    yMin: state.chartPan.startDomain.yMin + deltaY * yUnitsPerPixel,
+    yMax: state.chartPan.startDomain.yMax + deltaY * yUnitsPerPixel,
+  });
+
+  state.zoomDomain =
+    nextDomain.xMin === state.chartPan.baseDomain.xMin &&
+    nextDomain.xMax === state.chartPan.baseDomain.xMax &&
+    nextDomain.yMin === state.chartPan.baseDomain.yMin &&
+    nextDomain.yMax === state.chartPan.baseDomain.yMax
+      ? null
+      : nextDomain;
+
+  renderTimeline();
+}
+
+function endChartPan(event) {
+  if (!state.chartPan || event.pointerId !== state.chartPan.pointerId) {
+    return;
+  }
+
+  if (state.chartPan.moved) {
+    state.suppressChartClickUntil = performance.now() + 250;
+  }
+
+  elements.chartWrap.releasePointerCapture?.(event.pointerId);
+  elements.chartWrap.classList.remove("is-panning");
+  state.chartPan = null;
+}
+
+function resetChartZoom() {
+  if (!state.zoomDomain) {
+    return;
+  }
+
+  state.zoomDomain = null;
+  renderTimeline();
 }
 
 function applyFilters() {
@@ -1027,10 +1329,7 @@ function applyFilters() {
     )
     .sort((a, b) => new Date(a.releaseDate) - new Date(b.releaseDate));
 
-  const chartState = renderChart();
-  elements.caption.textContent = elements.showAllLabels.checked
-    ? `${state.visibleModels.length} visible points · all labels shown`
-    : `${state.visibleModels.length} visible points · ${chartState.labelledCount} labels shown`;
+  renderTimeline();
 
   renderSummary();
 }
@@ -1097,12 +1396,20 @@ function bindEvents() {
     }
   }, true);
   elements.chart.addEventListener("pointerover", (event) => {
+    if (state.chartPan) {
+      return;
+    }
+
     const point = findTimelinePoint(event.target);
     if (point) {
       showTooltip(point, event.clientX, event.clientY);
     }
   });
   elements.chart.addEventListener("pointermove", (event) => {
+    if (state.chartPan) {
+      return;
+    }
+
     const point = findTimelinePoint(event.target);
     if (!point) {
       return;
@@ -1136,6 +1443,12 @@ function bindEvents() {
     }
   });
   elements.chart.addEventListener("click", (event) => {
+    if (performance.now() < state.suppressChartClickUntil) {
+      state.suppressChartClickUntil = 0;
+      event.preventDefault();
+      return;
+    }
+
     const point = findTimelinePoint(event.target);
     if (point) {
       openModelDetails(point);
@@ -1150,6 +1463,12 @@ function bindEvents() {
     event.preventDefault();
     openModelDetails(point);
   });
+  elements.chartWrap.addEventListener("pointerdown", startChartPan);
+  elements.chartWrap.addEventListener("pointermove", moveChartPan);
+  elements.chartWrap.addEventListener("pointerup", endChartPan);
+  elements.chartWrap.addEventListener("pointercancel", endChartPan);
+  elements.chartWrap.addEventListener("wheel", zoomChartAtPointer, { passive: false });
+  elements.chartWrap.addEventListener("dblclick", resetChartZoom);
   elements.minIntelligenceInput.addEventListener("input", applyFilters);
   elements.searchInput.addEventListener("input", applyFilters);
   elements.pricedOnly.addEventListener("change", applyFilters);

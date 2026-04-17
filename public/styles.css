@@ -791,6 +791,20 @@ td small {
   background: var(--bg);
 }
 
+.timeline-chart-wrap.is-pan-enabled {
+  cursor: grab;
+}
+
+.timeline-chart-wrap.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.timeline-chart-wrap.is-panning .timeline-point circle,
+.timeline-chart-wrap.is-panning .timeline-point .timeline-label {
+  cursor: grabbing;
+}
+
 .timeline-chart {
   display: block;
   width: 100%;

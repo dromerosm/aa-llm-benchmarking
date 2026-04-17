@@ -273,7 +273,7 @@ function getColumns() {
       key: "name",
       label: "Model",
       render: (model) => `
-        <a class="model-name" href="${escapeHtml(model.detailsUrl || "#")}" target="_blank" rel="noreferrer">
+        <a class="model-name" href="${escapeHtml(model.detailsUrl || "#")}" target="_blank" rel="noopener noreferrer">
           ${escapeHtml(model.name)}
         </a>
       `,

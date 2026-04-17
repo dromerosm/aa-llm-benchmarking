@@ -1,0 +1,12 @@
+cloudflare_api_token = "replace-with-cloudflare-api-token"
+cloudflare_zone_id   = "replace-with-zone-id"
+
+# Keep both enabled on paid plans. On Free plans, disable OWASP unless you replace
+# the managed ruleset selection with one supported by your plan.
+enable_cloudflare_managed_ruleset = true
+enable_owasp_core_ruleset         = true
+
+# Default API protection profile for /api/models
+api_rate_limit_requests_per_period = 120
+api_rate_limit_period              = 60
+api_rate_limit_mitigation_timeout  = 600

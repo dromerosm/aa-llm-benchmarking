@@ -1,0 +1,5 @@
+- [ ] Añadir el resto de los endpoints de AA: audio, imagen, video, ...
+- [ ] Persistir la cache como un objeto json en D1
+- [ ] Añadir gráfica Tiempo x Precio
+- [ ] Añadir gráfica Inteligencia x Precio
+- [ ] Filtros por métricas

@@ -1,22 +1,19 @@
 {
-  "name": "artificial_analysis_leaderboard",
+  "name": "aa-llm-benchmarking",
   "version": "1.0.0",
-  "description": "Local leaderboard clone powered by the Artificial Analysis API",
-  "main": "server.js",
+  "description": "Cloudflare Worker app powered by the Artificial Analysis API",
+  "private": true,
   "scripts": {
-    "dev": "nodemon",
-    "start": "nodemon",
-    "serve": "node server.js"
+    "dev": "wrangler dev",
+    "start": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "dependencies": {
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1"
-  },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
-    "nodemon": "^3.1.10"
+    "wrangler": "^4.83.0"
   }
 }

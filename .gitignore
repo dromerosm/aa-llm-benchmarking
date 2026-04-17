@@ -1,6 +1,17 @@
 node_modules/
 .env
 .env.*
+.dev.vars*
+.wrangler/
+!.dev.vars.example
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
 .cache/
 test-results/
 .DS_Store

@@ -1,0 +1,51 @@
+# AGENTS.md
+
+Repository instructions for humans and coding agents working on this project.
+
+## Language
+
+- Use English for all user-facing copy.
+- Use English for code comments, README updates, commit messages, pull request text, and any new documentation.
+- Keep naming consistent and readable in English.
+
+## Deployment Target
+
+- This project is intended to be deployed on Cloudflare.
+- Prefer solutions that are compatible with Cloudflare Workers and Cloudflare Pages.
+- Avoid introducing new runtime dependencies that assume a traditional long-lived Node.js server unless explicitly approved.
+- Prefer web-standard APIs such as `fetch`, `Request`, `Response`, and URL-based routing patterns when possible.
+- Use Wrangler for local development, secrets management, and deployment workflows.
+
+## Architecture Guidance
+
+- Keep the frontend static-first when possible.
+- If backend logic changes, design it so it can be migrated cleanly to a Cloudflare edge runtime.
+- Minimize server-side state. If caching is needed, keep the strategy simple and portable.
+- Do not add heavy frameworks unless there is a clear justification.
+
+## Data and Attribution
+
+- This project depends on Artificial Analysis data.
+- Preserve visible attribution to Artificial Analysis in the UI and documentation.
+- Do not remove methodology or source links unless they are replaced with an equivalent or better attribution path.
+
+## Secrets and Environment
+
+- Never commit secrets, API keys, `.env` files, or private credentials.
+- Prefer `.dev.vars` for local Worker secrets and Wrangler secrets for deployed environments.
+- Document any new environment variables in `README.md`.
+- Keep local development setup simple and explicit.
+
+## Changes and Quality
+
+- Make focused changes that match the current product direction.
+- Preserve the existing visual language unless a redesign is explicitly requested.
+- Validate important user flows locally before finishing work.
+- When behavior changes, update documentation in the same change.
+
+## Definition of Done
+
+- New copy is in English.
+- The change remains aligned with Cloudflare deployment constraints.
+- Artificial Analysis attribution is still present where relevant.
+- Documentation is updated if setup, behavior, or environment requirements changed.

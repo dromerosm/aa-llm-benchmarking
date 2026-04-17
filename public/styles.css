@@ -1119,7 +1119,7 @@ tbody tr:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 0.75rem 1rem;
   margin-top: 3rem;
   padding-top: 1.5rem;
@@ -1222,7 +1222,7 @@ tbody tr:hover {
 
   .site-footer {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
   }
 
   .site-footer-separator {

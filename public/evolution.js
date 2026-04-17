@@ -81,6 +81,22 @@ function formatMoney(value) {
   return moneyFormat.format(value);
 }
 
+function formatShare(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "—";
+  }
+
+  return `${numberFormat.format(value * 100)}%`;
+}
+
+function formatPercent(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "—";
+  }
+
+  return `${numberFormat.format(value)}%`;
+}
+
 function formatMonth(date) {
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
@@ -155,6 +171,14 @@ function createLoadingIndicator() {
 function formatTooltipMetric(value, formatter, suffix = "") {
   if (formatter === "money") {
     return formatMoney(value);
+  }
+
+  if (formatter === "share") {
+    return formatShare(value);
+  }
+
+  if (formatter === "percent") {
+    return formatPercent(value);
   }
 
   if (formatter === "date") {
@@ -539,11 +563,11 @@ function buildTooltipMarkup(model, colors) {
     ["Creator", model.creator || "—"],
     ["Release Date", formatTooltipMetric(model.releaseDate, "date")],
     ["AA Intelligence", formatTooltipMetric(model.intelligence)],
-    ["Coding", formatTooltipMetric(model.coding)],
-    ["Math", formatTooltipMetric(model.math)],
-    ["GPQA", formatTooltipMetric(model.gpqa)],
-    ["MMLU-Pro", formatTooltipMetric(model.mmluPro)],
-    ["LiveCodeBench", formatTooltipMetric(model.liveCodeBench)],
+    ["Coding", formatTooltipMetric(model.coding, "percent")],
+    ["Math", formatTooltipMetric(model.math, "percent")],
+    ["GPQA", formatTooltipMetric(model.gpqa, "share")],
+    ["MMLU-Pro", formatTooltipMetric(model.mmluPro, "share")],
+    ["LiveCodeBench", formatTooltipMetric(model.liveCodeBench, "share")],
     ["Blended USD/1M", formatTooltipMetric(model.priceBlended, "money")],
     ["Input USD/1M", formatTooltipMetric(model.priceInput, "money")],
     ["Output USD/1M", formatTooltipMetric(model.priceOutput, "money")],

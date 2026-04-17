@@ -80,6 +80,14 @@ function formatShare(value) {
   return `${numberFormat.format(value * 100)}%`;
 }
 
+function formatPercent(value) {
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return "—";
+  }
+
+  return `${numberFormat.format(value)}%`;
+}
+
 function formatDate(dateString) {
   if (!dateString) {
     return "—";
@@ -367,12 +375,12 @@ function getColumns() {
     {
       key: "coding",
       label: "Coding",
-      render: (model) => metricCell(model.coding, (value) => formatMetric(value)),
+      render: (model) => metricCell(model.coding, formatPercent),
     },
     {
       key: "math",
       label: "Math",
-      render: (model) => metricCell(model.math, (value) => formatMetric(value)),
+      render: (model) => metricCell(model.math, formatPercent),
     },
     {
       key: "gpqa",

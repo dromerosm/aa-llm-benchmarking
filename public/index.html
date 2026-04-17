@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Model Leaderboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <nav class="page-nav">
+        <a class="page-nav-link is-active" href="/">Leaderboard</a>
+        <a class="page-nav-link" href="/evolution">Intelligence Timeline</a>
+      </nav>
+
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Artificial Analysis / LLMs</p>
+          <h1>Model Leaderboard</h1>
+          <p class="hero-text">
+            Powered by
+            <a href="https://artificialanalysis.ai/" target="_blank" rel="noreferrer">
+              Artificial Analysis
+            </a>
+          </p>
+          <div class="hero-meta" id="hero-meta"></div>
+          <div class="hero-attribution">
+            <p class="hero-attribution-title">Methodology & Attribution</p>
+            <p class="hero-attribution-text">
+              Artificial Analysis benchmarks intelligence, quality, performance,
+              and price across models and endpoints. Their methodology describes
+              these performance numbers as real-world end-to-end customer
+              experience rather than theoretical peak hardware throughput.
+            </p>
+            <p class="hero-attribution-text">
+              The public API documentation also requires attribution to
+              Artificial Analysis when reusing the free API data.
+            </p>
+            <div class="link-list">
+              <a href="https://artificialanalysis.ai/leaderboards/models" target="_blank" rel="noreferrer">
+                Original leaderboard
+              </a>
+              <a href="https://artificialanalysis.ai/methodology" target="_blank" rel="noreferrer">
+                Methodology
+              </a>
+              <a href="https://artificialanalysis.ai/api-reference" target="_blank" rel="noreferrer">
+                API reference
+              </a>
+            </div>
+          </div>
+        </div>
+        <div class="hero-panel">
+          <div class="hero-panel-label">Top 5 Models</div>
+          <div class="hero-panel-value" id="status-value">Loading…</div>
+          <p class="hero-panel-text">
+            Ranked by Artificial Analysis intelligence across the current API
+            response.
+          </p>
+        </div>
+      </header>
+
+      <section class="summary-grid" id="summary-grid"></section>
+
+      <section class="controls controls-primary">
+        <label class="control">
+          <span>Search</span>
+          <input
+            id="search-input"
+            type="search"
+            placeholder="Filter, e.g. GPT, Meta, Gemini"
+          />
+        </label>
+
+        <label class="control">
+          <span>Price</span>
+          <select id="price-filter">
+            <option value="all">All</option>
+            <option value="low">Low (&lt;$0.15 / 1M)</option>
+            <option value="medium">Medium ($0.15-$1 / 1M)</option>
+            <option value="high">High (&gt;$1 / 1M)</option>
+          </select>
+        </label>
+
+        <label class="control">
+          <span>Creator</span>
+          <select id="creator-filter">
+            <option value="all">All</option>
+          </select>
+        </label>
+
+        <button id="expand-columns-button" class="ghost-button" type="button">
+          Expand columns
+        </button>
+      </section>
+
+      <section class="controls controls-secondary">
+        <label class="control">
+          <span>Sort by</span>
+          <select id="sort-select">
+            <option value="intelligence-desc">Intelligence ↓</option>
+            <option value="price-asc">Price ↑</option>
+            <option value="speed-desc">Speed ↓</option>
+            <option value="latency-asc">Latency ↑</option>
+            <option value="release-desc">Release Date ↓</option>
+            <option value="name-asc">Name A-Z</option>
+          </select>
+        </label>
+
+        <label class="control">
+          <span>Rows per page</span>
+          <select id="page-size-select">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+          </select>
+        </label>
+
+        <label class="toggle">
+          <input id="scored-only-toggle" type="checkbox" />
+          <span>Only models with intelligence scores</span>
+        </label>
+      </section>
+
+      <section class="table-card">
+        <div class="table-meta">
+          <div>
+            <h2>Model Leaderboard</h2>
+            <p id="table-caption">Loading models…</p>
+          </div>
+          <div class="table-meta-right">
+            <p id="table-meta-right"></p>
+            <div class="table-pill-row" id="column-mode-pills"></div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead id="table-head"></thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+
+        <div class="pagination" id="pagination">
+          <p class="pagination-status" id="pagination-status">Loading pagination…</p>
+          <div class="pagination-actions">
+            <button id="prev-page-button" type="button">Previous</button>
+            <button id="next-page-button" type="button">Next</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="info-grid">
+        <article class="info-card">
+          <div class="info-card-header">
+            <p class="eyebrow">Reference</p>
+            <h2>Key Definitions</h2>
+          </div>
+          <div class="definition-list">
+            <details open>
+              <summary>Output Speed</summary>
+              <p>
+                Tokens per second received while the model is generating tokens,
+                after the first chunk has arrived.
+              </p>
+            </details>
+            <details>
+              <summary>Latency (Time to First Token)</summary>
+              <p>
+                Time between sending the request and receiving the first token.
+                For non-streaming models, this reflects time to completion.
+              </p>
+            </details>
+            <details>
+              <summary>Time to First Answer Token</summary>
+              <p>
+                Time between sending the request and receiving the first answer
+                token. For reasoning models, this comes after any thinking
+                phase.
+              </p>
+            </details>
+            <details>
+              <summary>Price</summary>
+              <p>
+                Blended price in USD per million tokens, using a 3:1 ratio of
+                input tokens to output tokens.
+              </p>
+            </details>
+            <details>
+              <summary>Input and Output Price</summary>
+              <p>
+                API prices in USD per million tokens for request tokens sent and
+                completion tokens generated.
+              </p>
+            </details>
+            <details>
+              <summary>Time period</summary>
+              <p>
+                Artificial Analysis describes these metrics as live and based on
+                the past 72 hours of measurements.
+              </p>
+            </details>
+          </div>
+        </article>
+      </section>
+    </div>
+
+    <template id="summary-card-template">
+      <article class="summary-card">
+        <p class="summary-label"></p>
+        <div class="summary-content">
+          <div>
+            <h3 class="summary-title"></h3>
+            <p class="summary-subtitle"></p>
+          </div>
+          <p class="summary-metric"></p>
+        </div>
+      </article>
+    </template>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

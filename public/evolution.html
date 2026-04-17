@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Intelligence Timeline</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell page-shell-wide">
+      <nav class="page-nav">
+        <a class="page-nav-link" href="/">Leaderboard</a>
+        <a class="page-nav-link is-active" href="/evolution">Intelligence Timeline</a>
+      </nav>
+
+      <header class="hero timeline-hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Artificial Analysis / Visualisation</p>
+          <h1>Intelligence Timeline</h1>
+          <p class="hero-text">
+            Release date on the X axis, intelligence on the Y axis, and bubble size
+            proportional to blended USD per 1M tokens. Every visible point is
+            labelled with the model name.
+          </p>
+          <div class="hero-meta" id="timeline-hero-meta"></div>
+        </div>
+        <div class="hero-panel">
+          <div class="hero-panel-label">Bubble size</div>
+          <div class="hero-panel-value" id="timeline-status-value">Loading…</div>
+          <p class="hero-panel-text">
+            Larger circles represent higher blended token cost. Filter by creator
+            to isolate a vendor timeline and reduce label density.
+          </p>
+        </div>
+      </header>
+
+      <section class="summary-grid" id="timeline-summary-grid"></section>
+
+      <section class="controls timeline-controls">
+        <div class="control control-multiselect">
+          <span>Creators</span>
+          <details id="timeline-creator-dropdown" class="control-dropdown">
+            <summary class="control-dropdown-summary">
+              <span id="timeline-creator-summary">All creators</span>
+            </summary>
+            <div class="control-dropdown-panel">
+              <div class="control-actions">
+                <button id="timeline-creators-all" class="control-action-button" type="button">
+                  All
+                </button>
+                <button id="timeline-creators-none" class="control-action-button" type="button">
+                  None
+                </button>
+              </div>
+              <input
+                id="timeline-creator-search"
+                class="control-dropdown-search"
+                type="search"
+                placeholder="Find creator"
+                aria-label="Find creator"
+              />
+              <div
+                id="timeline-creator-filter"
+                class="control-checkbox-list"
+                role="group"
+                aria-label="Creators"
+              ></div>
+              <p id="timeline-creator-empty" class="control-empty-state" hidden>
+                No matching creators
+              </p>
+            </div>
+          </details>
+        </div>
+
+        <label class="control">
+          <span>Min intelligence</span>
+          <input
+            id="timeline-min-intelligence"
+            type="number"
+            min="0"
+            step="0.1"
+            placeholder="Any score"
+            inputmode="decimal"
+          />
+        </label>
+
+        <label class="control">
+          <span>Search model</span>
+          <input
+            id="timeline-search-input"
+            type="search"
+            placeholder="Filter by model name"
+          />
+        </label>
+
+        <label class="toggle">
+          <input id="timeline-priced-only" type="checkbox" />
+          <span>Only models with price data</span>
+        </label>
+      </section>
+
+      <section class="timeline-card">
+        <div class="table-meta">
+          <div>
+            <h2>Temporal Evolution vs Intelligence</h2>
+            <p id="timeline-caption">Loading chart…</p>
+          </div>
+          <div class="table-meta-right">
+            <p id="timeline-updated"></p>
+            <div class="table-pill-row">
+              <span class="table-pill">X: Release date</span>
+              <span class="table-pill">Y: Intelligence</span>
+              <span class="table-pill">Size: Blended USD/1M</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="timeline-chart-wrap">
+          <svg
+            id="timeline-chart"
+            class="timeline-chart"
+            viewBox="0 0 1600 940"
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label="Scatter plot of model intelligence over time"
+          ></svg>
+        </div>
+      </section>
+
+      <section class="info-grid">
+        <article class="info-card">
+          <div class="info-card-header">
+            <p class="eyebrow">Reading Guide</p>
+            <h2>How To Read This View</h2>
+          </div>
+          <p class="info-text">
+            Points further right are newer releases. Points higher up have higher
+            Artificial Analysis intelligence scores. Larger circles indicate more
+            expensive blended pricing.
+          </p>
+          <p class="info-text">
+            Bubble size uses a square-root scale so ultra-expensive frontier
+            models do not visually dominate the whole chart.
+          </p>
+        </article>
+
+        <article class="info-card">
+          <div class="info-card-header">
+            <p class="eyebrow">Attribution</p>
+            <h2>Source & Methodology</h2>
+          </div>
+          <p class="info-text">
+            Built from the Artificial Analysis models endpoint and visualised
+            locally. Use the original methodology for benchmark interpretation.
+          </p>
+          <div class="link-list">
+            <a href="https://artificialanalysis.ai/methodology" target="_blank" rel="noreferrer">
+              Methodology
+            </a>
+            <a href="https://artificialanalysis.ai/leaderboards/models" target="_blank" rel="noreferrer">
+              Original leaderboard
+            </a>
+            <a href="https://artificialanalysis.ai/api-reference" target="_blank" rel="noreferrer">
+              API reference
+            </a>
+          </div>
+        </article>
+      </section>
+    </div>
+
+    <template id="timeline-summary-card-template">
+      <article class="summary-card">
+        <p class="summary-label"></p>
+        <div class="summary-content">
+          <div>
+            <h3 class="summary-title"></h3>
+            <p class="summary-subtitle"></p>
+          </div>
+          <p class="summary-metric"></p>
+        </div>
+      </article>
+    </template>
+
+    <div id="timeline-tooltip" class="timeline-tooltip" hidden aria-hidden="true"></div>
+
+    <script src="/evolution.js" defer></script>
+  </body>
+</html>

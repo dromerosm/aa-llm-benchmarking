@@ -1,0 +1,13 @@
+{
+  "watch": [
+    "server.js",
+    "public"
+  ],
+  "ext": "js,json,html,css,svg",
+  "ignore": [
+    ".cache/*",
+    "node_modules/*",
+    "test-results/*"
+  ],
+  "exec": "node server.js"
+}

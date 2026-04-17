@@ -816,13 +816,10 @@ td small {
 }
 
 .timeline-label {
+  fill: var(--muted);
   font-family: var(--font-body);
   font-size: 13px;
   font-weight: 600;
-  paint-order: stroke;
-  stroke: rgba(255, 255, 255, 0.9);
-  stroke-width: 4;
-  stroke-linejoin: round;
   transition:
     opacity 120ms ease,
     filter 120ms ease,
@@ -830,12 +827,30 @@ td small {
     font-weight 120ms ease;
 }
 
+:root[data-theme="dark"] .timeline-label {
+  fill: var(--muted);
+}
+
 .timeline-point circle {
+  cursor: pointer;
   transition:
     stroke-width 120ms ease,
     fill 120ms ease,
     opacity 120ms ease,
     filter 120ms ease;
+}
+
+.timeline-point .timeline-label {
+  cursor: pointer;
+}
+
+.timeline-point {
+  outline: none;
+}
+
+.timeline-point:focus,
+.timeline-point:focus-visible {
+  outline: none;
 }
 
 .timeline-point:hover circle,

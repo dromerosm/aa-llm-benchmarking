@@ -44,6 +44,7 @@ const LABEL_LIMITS = {
   dense: 88,
   veryDense: 72,
 };
+const DEFAULT_TOP_CREATOR_COUNT = 10;
 
 const numberFormat = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
@@ -200,6 +201,56 @@ function topModelsByIntelligence(models, limit = 5) {
     .slice(0, limit);
 }
 
+function getCreatorTopScore(creator, models) {
+  const topScore = models
+    .filter(
+      (model) =>
+        model.creator === creator &&
+        model.intelligence !== null &&
+        model.intelligence !== undefined &&
+        !Number.isNaN(model.intelligence),
+    )
+    .reduce((best, model) => Math.max(best, model.intelligence), Number.NEGATIVE_INFINITY);
+
+  return Number.isFinite(topScore) ? topScore : null;
+}
+
+function getCreatorsSortedByTopIntelligence(models) {
+  return [...new Set(models.map((model) => model.creator))].sort((left, right) => {
+    const leftScore = getCreatorTopScore(left, models);
+    const rightScore = getCreatorTopScore(right, models);
+
+    if (leftScore === null && rightScore === null) {
+      return left.localeCompare(right);
+    }
+
+    if (leftScore === null) {
+      return 1;
+    }
+
+    if (rightScore === null) {
+      return -1;
+    }
+
+    if (rightScore !== leftScore) {
+      return rightScore - leftScore;
+    }
+
+    return left.localeCompare(right);
+  });
+}
+
+function modelFamilyName(model) {
+  return (model.name || "")
+    .replace(/\s*\([^)]*\)/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function modelFamilyKey(model) {
+  return modelFamilyName(model).toLowerCase();
+}
+
 function hashCreator(creator) {
   let hash = 0;
   for (const char of creator) {
@@ -227,13 +278,17 @@ function patternIdForCreator(creator) {
 }
 
 function populateCreatorFilter() {
-  const creators = [...new Set(state.models.map((model) => model.creator))].sort();
+  const creators = getCreatorsSortedByTopIntelligence(state.models);
   const previousSelection = getSelectedCreators();
-  const shouldSelectAll = previousSelection.size === 0 && !elements.creatorFilter.children.length;
+  const shouldUseDefaultTopCreators =
+    previousSelection.size === 0 && !elements.creatorFilter.children.length;
+  const defaultSelectedCreators = new Set(creators.slice(0, DEFAULT_TOP_CREATOR_COUNT));
 
   elements.creatorFilter.innerHTML = creators
     .map((creator) => {
-      const checked = shouldSelectAll || previousSelection.has(creator);
+      const checked = shouldUseDefaultTopCreators
+        ? defaultSelectedCreators.has(creator)
+        : previousSelection.has(creator);
       return `
         <label class="control-checkbox-option">
           <input type="checkbox" value="${escapeHtml(creator)}" ${checked ? "checked" : ""} />
@@ -436,35 +491,78 @@ function createTicks(minDate, maxDate, count = 6) {
 }
 
 function buildLabelPlacements(points) {
-  const sorted = [...points].sort((a, b) => a.cy - b.cy);
-  const active = [];
+  const sorted = [...points].sort((a, b) => b.intelligence - a.intelligence);
+  const placedBoxes = [];
+  const labelHeight = 14;
+  const labelGap = 8;
+  const minX = chartConfig.marginLeft + 8;
+  const maxX = chartConfig.width - chartConfig.marginRight + 205;
+  const minY = chartConfig.marginTop + 14;
+  const maxY = chartConfig.height - chartConfig.marginBottom - 12;
+
+  function clamp(value, lower, upper) {
+    return Math.max(lower, Math.min(upper, value));
+  }
+
+  function intersects(box) {
+    return placedBoxes.some(
+      (placed) =>
+        box.left < placed.right &&
+        box.right > placed.left &&
+        box.top < placed.bottom &&
+        box.bottom > placed.top,
+    );
+  }
 
   for (const point of sorted) {
     const labelWidth = Math.min(220, point.label.length * 6.7 + 8);
-    let x = point.cx + point.r + 8;
-    let y = point.cy - point.r - 4;
+    const offset = point.r + labelGap;
+    const candidatePositions = [
+      { x: point.cx + offset, y: point.cy - offset },
+      { x: point.cx + offset, y: point.cy + 4 },
+      { x: point.cx + offset, y: point.cy + offset + 8 },
+      { x: point.cx - labelWidth - offset, y: point.cy - offset },
+      { x: point.cx - labelWidth - offset, y: point.cy + 4 },
+      { x: point.cx - labelWidth - offset, y: point.cy + offset + 8 },
+      { x: point.cx - labelWidth / 2, y: point.cy - offset - 12 },
+      { x: point.cx - labelWidth / 2, y: point.cy + offset + 14 },
+    ].map((candidate) => {
+      const x = clamp(candidate.x, minX, maxX - labelWidth);
+      const y = clamp(candidate.y, minY, maxY);
+      const box = {
+        left: x - 4,
+        right: x + labelWidth + 4,
+        top: y - labelHeight,
+        bottom: y + 6,
+      };
+      const dx = x - point.cx;
+      const dy = y - point.cy;
+      return {
+        x,
+        y,
+        box,
+        distance: Math.hypot(dx, dy),
+        intersects: intersects(box),
+      };
+    });
 
-    if (x + labelWidth > chartConfig.width - chartConfig.marginRight + 205) {
-      x = point.cx - labelWidth - point.r - 8;
-    }
+    const bestCandidate = candidatePositions
+      .sort((left, right) => {
+        if (left.intersects !== right.intersects) {
+          return Number(left.intersects) - Number(right.intersects);
+        }
 
-    const minY = chartConfig.marginTop + 14;
-    const maxY = chartConfig.height - chartConfig.marginBottom - 12;
-    y = Math.max(minY, Math.min(maxY, y));
+        return left.distance - right.distance;
+      })[0];
 
-    for (const placed of active) {
-      if (Math.abs(placed.x - x) < Math.max(110, labelWidth * 0.65) && Math.abs(placed.y - y) < 18) {
-        y = Math.min(maxY, placed.y + 16);
-      }
-    }
-
-    active.push({ x, y });
-    point.labelX = x;
-    point.labelY = y;
+    placedBoxes.push(bestCandidate.box);
+    point.labelX = bestCandidate.x;
+    point.labelY = bestCandidate.y;
   }
 }
 
-function addPointsUntil(selected, maxLabels, list, perRunLimit = list.length) {
+function addPointsUntil(selected, maxLabels, list, perRunLimit = list.length, options = {}) {
+  const { selectedFamilies = null, uniqueByFamily = false } = options;
   let added = 0;
 
   for (const point of list) {
@@ -472,8 +570,15 @@ function addPointsUntil(selected, maxLabels, list, perRunLimit = list.length) {
       break;
     }
 
+    if (uniqueByFamily && selectedFamilies?.has(point.familyKey)) {
+      continue;
+    }
+
     if (!selected.has(point.pointIndex)) {
       selected.add(point.pointIndex);
+      if (uniqueByFamily && selectedFamilies) {
+        selectedFamilies.add(point.familyKey);
+      }
       added += 1;
     }
   }
@@ -506,6 +611,7 @@ function selectLabelPointIndexes(points) {
   }
 
   const selected = new Set();
+  const selectedFamilies = new Set();
   const search = elements.searchInput.value.trim().toLowerCase();
   const byIntelligence = [...points].sort((a, b) => b.intelligence - a.intelligence);
   const byRecent = [...points].sort(
@@ -519,29 +625,44 @@ function selectLabelPointIndexes(points) {
         !Number.isNaN(point.priceBlended),
     )
     .sort((a, b) => b.priceBlended - a.priceBlended);
-  const topPerCreator = [];
-  const seenCreators = new Set();
+  const topPerFamily = [];
+  const seenFamilies = new Set();
 
   for (const point of byIntelligence) {
-    if (seenCreators.has(point.creator)) {
+    if (seenFamilies.has(point.familyKey)) {
       continue;
     }
 
-    seenCreators.add(point.creator);
-    topPerCreator.push(point);
+    seenFamilies.add(point.familyKey);
+    topPerFamily.push(point);
   }
 
   if (search) {
     const matchingPoints = points.filter((point) =>
       `${point.name} ${point.creator}`.toLowerCase().includes(search),
     );
-    addPointsUntil(selected, maxLabels, matchingPoints, Math.min(matchingPoints.length, 36));
+    addPointsUntil(selected, maxLabels, matchingPoints, Math.min(matchingPoints.length, 36), {
+      selectedFamilies,
+      uniqueByFamily: true,
+    });
   }
 
-  addPointsUntil(selected, maxLabels, topPerCreator, Math.min(topPerCreator.length, 24));
-  addPointsUntil(selected, maxLabels, byIntelligence, Math.ceil(maxLabels * 0.34));
-  addPointsUntil(selected, maxLabels, byPrice, Math.ceil(maxLabels * 0.16));
-  addPointsUntil(selected, maxLabels, byRecent, Math.ceil(maxLabels * 0.2));
+  addPointsUntil(selected, maxLabels, topPerFamily, Math.min(topPerFamily.length, 36), {
+    selectedFamilies,
+    uniqueByFamily: true,
+  });
+  addPointsUntil(selected, maxLabels, byIntelligence, Math.ceil(maxLabels * 0.34), {
+    selectedFamilies,
+    uniqueByFamily: true,
+  });
+  addPointsUntil(selected, maxLabels, byPrice, Math.ceil(maxLabels * 0.16), {
+    selectedFamilies,
+    uniqueByFamily: true,
+  });
+  addPointsUntil(selected, maxLabels, byRecent, Math.ceil(maxLabels * 0.2), {
+    selectedFamilies,
+    uniqueByFamily: true,
+  });
 
   const remaining = maxLabels - selected.size;
   if (remaining > 0) {
@@ -549,8 +670,9 @@ function selectLabelPointIndexes(points) {
 
     for (let index = 0; index < remaining; index += 1) {
       const point = points[Math.min(points.length - 1, Math.floor(index * step))];
-      if (point) {
+      if (point && !selectedFamilies.has(point.familyKey)) {
         selected.add(point.pointIndex);
+        selectedFamilies.add(point.familyKey);
       }
     }
   }
@@ -712,6 +834,16 @@ function findTimelinePoint(target) {
   return target instanceof Element ? target.closest(".timeline-point") : null;
 }
 
+function openModelDetails(pointElement) {
+  const pointIndex = Number(pointElement.dataset.pointIndex);
+  const model = state.visibleModels[pointIndex];
+  if (!model?.detailsUrl) {
+    return;
+  }
+
+  window.open(model.detailsUrl, "_blank", "noopener,noreferrer");
+}
+
 function renderChart() {
   const visible = state.visibleModels;
   hideTooltip();
@@ -763,6 +895,7 @@ function renderChart() {
       cy,
       r,
       label: model.name,
+      familyKey: modelFamilyKey(model),
       colors,
       hasZeroOrMissingPrice,
       patternId: patternIdForCreator(model.creator),
@@ -841,10 +974,10 @@ function renderChart() {
       ${points
         .map(
           (point, index) => `
-            <g class="timeline-point" role="img" tabindex="0" data-point-index="${index}" aria-label="${escapeHtml(
+            <g class="timeline-point" role="link" tabindex="0" data-point-index="${index}" aria-label="${escapeHtml(
               `${point.name}, ${point.creator}, released ${formatDate(point.releaseDate)}, intelligence ${formatMetric(
                 point.intelligence,
-              )}`,
+              )}. Open model page in Artificial Analysis.`,
             )}">
               <circle
                 cx="${point.cx}"
@@ -1001,6 +1134,21 @@ function bindEvents() {
     if (point && point !== relatedPoint) {
       hideTooltip();
     }
+  });
+  elements.chart.addEventListener("click", (event) => {
+    const point = findTimelinePoint(event.target);
+    if (point) {
+      openModelDetails(point);
+    }
+  });
+  elements.chart.addEventListener("keydown", (event) => {
+    const point = findTimelinePoint(event.target);
+    if (!point || (event.key !== "Enter" && event.key !== " ")) {
+      return;
+    }
+
+    event.preventDefault();
+    openModelDetails(point);
   });
   elements.minIntelligenceInput.addEventListener("input", applyFilters);
   elements.searchInput.addEventListener("input", applyFilters);

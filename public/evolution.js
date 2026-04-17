@@ -23,7 +23,6 @@ const elements = {
   pricedOnly: document.querySelector("#timeline-priced-only"),
   showAllLabels: document.querySelector("#timeline-show-all-labels"),
   caption: document.querySelector("#timeline-caption"),
-  updated: document.querySelector("#timeline-updated"),
   chart: document.querySelector("#timeline-chart"),
   tooltip: document.querySelector("#timeline-tooltip"),
   summaryTemplate: document.querySelector("#timeline-summary-card-template"),
@@ -95,6 +94,17 @@ function formatDate(dateString) {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
   }).format(date);
+}
+
+function formatUpdatedLabel(dateString) {
+  if (!dateString) {
+    return "";
+  }
+
+  return `Updated: ${new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(dateString))}`;
 }
 
 function formatTooltipMetric(value, formatter, suffix = "") {
@@ -218,6 +228,7 @@ function renderHeroMeta() {
   const pills = [
     `${state.models.length} API models`,
     state.cache?.persistent ? "Edge cache: active" : "Edge cache: inactive",
+    formatUpdatedLabel(state.refreshedAt),
   ].filter(Boolean);
 
   elements.heroMeta.innerHTML = pills
@@ -777,13 +788,6 @@ function applyFilters() {
   elements.caption.textContent = elements.showAllLabels.checked
     ? `${state.visibleModels.length} visible points · all labels shown`
     : `${state.visibleModels.length} visible points · ${chartState.labelledCount} labels shown`;
-  elements.updated.textContent = state.refreshedAt
-    ? `Updated: ${new Intl.DateTimeFormat("en-US", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(state.refreshedAt))}`
-    : "";
-
   const pricedVisible = state.visibleModels.filter(
     (model) =>
       model.priceBlended !== null &&

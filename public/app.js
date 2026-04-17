@@ -94,6 +94,17 @@ function formatDate(dateString) {
   }).format(date);
 }
 
+function formatUpdatedLabel(dateString) {
+  if (!dateString) {
+    return "";
+  }
+
+  return `Updated: ${new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(dateString))}`;
+}
+
 function rankByMetric(models, metric, direction) {
   return [...models]
     .filter((model) => model[metric] !== null && model[metric] !== undefined)
@@ -124,6 +135,7 @@ function renderHeroMeta() {
   const pills = [
     `${state.models.length} models`,
     state.cache?.persistent ? "Edge cache: active" : "Edge cache: inactive",
+    formatUpdatedLabel(state.refreshedAt),
   ].filter(Boolean);
 
   elements.heroMeta.innerHTML = pills
@@ -469,12 +481,7 @@ function renderTable() {
 
   elements.tableCaption.textContent = `${total} models shown`;
 
-  elements.tableMetaRight.textContent = state.refreshedAt
-    ? `Updated: ${new Intl.DateTimeFormat("en-US", {
-        dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(state.refreshedAt))}`
-    : "";
+  elements.tableMetaRight.textContent = "";
 
   elements.paginationStatus.textContent =
     total === 0

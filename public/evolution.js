@@ -215,14 +215,9 @@ function filterCreatorOptions() {
 }
 
 function renderHeroMeta() {
-  const promptLength = state.promptOptions.prompt_length || 1000;
-  const promptParallel = state.promptOptions.parallel_queries ?? 1;
   const pills = [
     `${state.models.length} API models`,
-    `Prompt length: ${promptLength} tokens`,
-    `Parallel queries: ${promptParallel}`,
-    state.apiStatus ? `API status: ${state.apiStatus}` : null,
-    state.cache?.layer ? `Cache source: ${state.cache.layer}` : null,
+    state.cache?.persistent ? "Edge cache: active" : "Edge cache: inactive",
   ].filter(Boolean);
 
   elements.heroMeta.innerHTML = pills

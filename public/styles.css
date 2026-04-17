@@ -338,30 +338,41 @@ td small {
 }
 
 .summary-content {
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
   margin-top: 16px;
-  align-items: flex-end;
+  align-items: start;
+}
+
+.summary-content > div {
+  min-width: 0;
 }
 
 .summary-title {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: 1.12rem;
   font-family: var(--font-display);
   font-weight: 700;
+  line-height: 1.25;
+  text-wrap: balance;
 }
 
 .summary-subtitle {
   margin: 8px 0 0;
+  font-size: 0.9rem;
   line-height: 1.4;
 }
 
 .summary-metric {
   margin: 0;
   text-align: right;
-  font-size: 1.3rem;
+  align-self: start;
+  padding-left: 8px;
+  font-size: 1.38rem;
   font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .controls {

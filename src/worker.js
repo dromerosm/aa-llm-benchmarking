@@ -1,5 +1,7 @@
+import { ApiError } from "./error.js";
 import { getModelsApiResponse } from "./model-service.js";
 import { applySecurityHeaders } from "./security.js";
+import { UpstreamBudgetCoordinator } from "./upstream-budget.js";
 
 function jsonError(message, status, extra = {}) {
   return Response.json(
@@ -39,9 +41,14 @@ async function handleModelsApi(request, env, ctx) {
       message: error instanceof Error ? error.message : String(error),
     });
 
-    return jsonError("Failed to fetch data from Artificial Analysis API", 502, {
-      errorId,
-    });
+    if (error instanceof ApiError) {
+      return jsonError(error.message, error.status, {
+        errorId,
+        ...error.extra,
+      });
+    }
+
+    return jsonError("Failed to fetch data from Artificial Analysis API", 502, { errorId });
   }
 }
 
@@ -68,3 +75,5 @@ export default {
     return applySecurityHeaders(response, request);
   },
 };
+
+export { UpstreamBudgetCoordinator };

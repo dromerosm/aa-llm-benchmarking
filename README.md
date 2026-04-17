@@ -11,6 +11,7 @@ The project serves a static frontend from Cloudflare Assets and exposes a Worker
 - Cloudflare Worker runtime entrypoint for API and asset handling
 - Wrangler configuration for local development and deployment
 - Edge caching and in-isolate memory caching for normalized API responses
+- Durable Object coordination to cap upstream refreshes at 750 requests per UTC day
 - Security hardening through response headers, secret handling, and method restrictions
 
 ## Cloudflare Architecture
@@ -28,6 +29,7 @@ Key runtime files:
 - [src/worker.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/worker.js)
 - [src/model-service.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/model-service.js)
 - [src/security.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/security.js)
+- [src/upstream-budget.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/upstream-budget.js)
 - [wrangler.jsonc](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/wrangler.jsonc)
 
 ## Requirements
@@ -193,7 +195,9 @@ Important:
 │   └── favicon.svg
 ├── src/
 │   ├── model-service.js
+│   ├── error.js
 │   ├── security.js
+│   ├── upstream-budget.js
 │   └── worker.js
 ├── .dev.vars.example
 ├── AGENTS.md
@@ -266,14 +270,15 @@ Notes:
 
 - Missing upstream values are normalized to `null`
 - `detailsUrl` points to the public Artificial Analysis model page
-- `cache.layer` can be `memory`, `edge`, `network`, or `stale-edge`
+- `cache.layer` can be `memory`, `edge`, `network`, `stale-edge`, or `stale-memory`
 
 ## Caching Strategy
 
-The Worker uses two layers of caching:
+The Worker uses two data-serving caches and one coordination layer:
 
 1. In-isolate memory cache
 2. Cloudflare Cache API (`caches.default`)
+3. `UpstreamBudgetCoordinator` Durable Object
 
 Current behavior:
 
@@ -281,7 +286,10 @@ Current behavior:
 - memory cache is used first when valid
 - edge cache is used when memory cache is cold
 - upstream is fetched on cache miss or expiry
+- all upstream refresh attempts are coordinated through a Durable Object
+- upstream refreshes are capped at `750` requests per UTC day across all colos
 - stale edge cache is used as fallback if the upstream request fails
+- stale memory cache is used as a final local fallback when available
 
 Important Cloudflare note:
 
@@ -399,6 +407,7 @@ Common causes:
 - invalid `API_KEY_AA`
 - upstream Artificial Analysis outage or rate limit
 - outbound network issue
+- the shared daily upstream refresh budget was exhausted before the next UTC reset
 
 ### The timeline shows fewer models than the table
 

@@ -121,18 +121,9 @@ function topModelsByIntelligence(models, limit = 5) {
 }
 
 function renderHeroMeta() {
-  const promptLength = state.promptOptions.prompt_length || 1000;
-  const parallelQueries = state.promptOptions.parallel_queries ?? 1;
-  const cacheLayer = state.cache?.layer
-    ? `Cache source: ${state.cache.layer}`
-    : "Cache source: network";
   const pills = [
     `${state.models.length} models`,
-    `Prompt length: ${promptLength} tokens`,
-    `Parallel queries: ${parallelQueries}`,
-    state.apiStatus ? `API status: ${state.apiStatus}` : null,
-    cacheLayer,
-    state.cache?.persistent ? "Persistent cache: enabled" : "Persistent cache: disabled",
+    state.cache?.persistent ? "Edge cache: active" : "Edge cache: inactive",
   ].filter(Boolean);
 
   elements.heroMeta.innerHTML = pills

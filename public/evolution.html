@@ -78,17 +78,21 @@
           <h1>Intelligence Timeline</h1>
           <p class="hero-text">
             Release date on the X axis, intelligence on the Y axis, and bubble size
-            proportional to blended USD per 1M tokens. Key models are labelled
-            automatically, and every visible point keeps full hover and keyboard details.
+            proportional to blended USD per 1M tokens. This view is designed to
+            show how frontier and open models move over time, making it easier to
+            compare jumps in capability, release cadence, and pricing pressure at a
+            glance. Key models are labelled automatically, and every visible point
+            keeps full hover and keyboard details so you can inspect outliers,
+            clusters, and release waves without losing context.
           </p>
           <div class="hero-meta" id="timeline-hero-meta"></div>
         </div>
         <div class="hero-panel">
-          <div class="hero-panel-label">Bubble size</div>
-          <div class="hero-panel-value" id="timeline-status-value">Loading…</div>
+          <div class="hero-panel-label">Top 5 Models</div>
+          <div class="hero-panel-value" id="timeline-status-value"></div>
           <p class="hero-panel-text">
-            Larger circles represent higher blended token cost. Filter by creator
-            to isolate a vendor timeline and reduce label density.
+            Ranked by Artificial Analysis intelligence across the current API
+            response.
           </p>
         </div>
       </header>
@@ -174,7 +178,7 @@
         <div class="table-meta">
           <div>
             <h2>Temporal Evolution vs Intelligence</h2>
-            <p id="timeline-caption">Loading chart…</p>
+            <p id="timeline-caption"></p>
           </div>
           <div class="table-meta-right">
             <div class="table-pill-row">

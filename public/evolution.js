@@ -7,6 +7,9 @@ const state = {
   apiStatus: null,
 };
 
+const SESSION_CACHE_KEY = "aa-models-payload-v1";
+const LOADING_INDICATOR_DELAY_MS = 180;
+
 const elements = {
   heroMeta: document.querySelector("#timeline-hero-meta"),
   statusValue: document.querySelector("#timeline-status-value"),
@@ -107,6 +110,48 @@ function formatUpdatedLabel(dateString) {
   }).format(new Date(dateString))}`;
 }
 
+function readCachedPayload() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const payload = JSON.parse(raw);
+    if (!payload || !Array.isArray(payload.models)) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedPayload(payload) {
+  try {
+    sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(payload));
+  } catch {}
+}
+
+function createLoadingIndicator() {
+  let timerId = null;
+
+  return {
+    schedule() {
+      timerId = window.setTimeout(() => {
+        elements.statusValue.textContent = "Loading";
+      }, LOADING_INDICATOR_DELAY_MS);
+    },
+    clear() {
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+        timerId = null;
+      }
+    },
+  };
+}
+
 function formatTooltipMetric(value, formatter, suffix = "") {
   if (formatter === "money") {
     return formatMoney(value);
@@ -117,6 +162,18 @@ function formatTooltipMetric(value, formatter, suffix = "") {
   }
 
   return formatMetric(value, suffix);
+}
+
+function topModelsByIntelligence(models, limit = 5) {
+  return [...models]
+    .filter(
+      (model) =>
+        model.intelligence !== null &&
+        model.intelligence !== undefined &&
+        !Number.isNaN(model.intelligence),
+    )
+    .sort((a, b) => b.intelligence - a.intelligence)
+    .slice(0, limit);
 }
 
 function hashCreator(creator) {
@@ -234,6 +291,35 @@ function renderHeroMeta() {
   elements.heroMeta.innerHTML = pills
     .map((pill) => `<span class="hero-meta-pill">${escapeHtml(pill)}</span>`)
     .join("");
+}
+
+function renderHeroSpotlight() {
+  const topModels = topModelsByIntelligence(state.models);
+
+  if (!topModels.length) {
+    elements.statusValue.textContent = "No scores";
+    return;
+  }
+
+  elements.statusValue.innerHTML = `
+    <ol class="hero-panel-ranking">
+      ${topModels
+        .map(
+          (model, index) => `
+            <li class="hero-panel-ranking-item">
+              <span class="hero-panel-rank">${index + 1}</span>
+              <span class="hero-panel-model">
+                <span class="hero-panel-model-name">${escapeHtml(model.name)}</span>
+                <span class="hero-panel-model-meta">${escapeHtml(model.creator)} · ${escapeHtml(
+                  formatMetric(model.intelligence),
+                )}</span>
+              </span>
+            </li>
+          `,
+        )
+        .join("")}
+    </ol>
+  `;
 }
 
 function summarizeVisibleModels() {
@@ -788,37 +874,37 @@ function applyFilters() {
   elements.caption.textContent = elements.showAllLabels.checked
     ? `${state.visibleModels.length} visible points · all labels shown`
     : `${state.visibleModels.length} visible points · ${chartState.labelledCount} labels shown`;
-  const pricedVisible = state.visibleModels.filter(
-    (model) =>
-      model.priceBlended !== null &&
-      model.priceBlended !== undefined &&
-      !Number.isNaN(model.priceBlended) &&
-      model.priceBlended > 0,
-  );
-  const maxPrice = pricedVisible.length
-    ? Math.max(...pricedVisible.map((model) => model.priceBlended))
-    : null;
-  elements.statusValue.textContent = maxPrice !== null ? formatMoney(maxPrice) : "No price";
 
   renderSummary();
 }
 
 async function loadModels() {
-  elements.statusValue.textContent = "Loading";
+  const loadingIndicator = createLoadingIndicator();
+  loadingIndicator.schedule();
 
-  const response = await fetch("/api/models");
-  if (!response.ok) {
-    throw new Error("Could not load timeline data");
+  try {
+    const response = await fetch("/api/models");
+    if (!response.ok) {
+      throw new Error("Could not load timeline data");
+    }
+
+    applyPayload(await response.json());
+  } finally {
+    loadingIndicator.clear();
   }
+}
 
-  const payload = await response.json();
+function applyPayload(payload) {
   state.models = payload.models || [];
   state.refreshedAt = payload.refreshedAt;
   state.promptOptions = payload.promptOptions || {};
   state.cache = payload.cache || null;
   state.apiStatus = payload.apiStatus || null;
 
+  writeCachedPayload(payload);
+
   renderHeroMeta();
+  renderHeroSpotlight();
   populateCreatorFilter();
   applyFilters();
 }
@@ -901,18 +987,38 @@ function bindEvents() {
 async function init() {
   bindEvents();
 
+  const cachedPayload = readCachedPayload();
+  if (cachedPayload) {
+    applyPayload(cachedPayload);
+  }
+
   try {
-    await loadModels();
+    if (!cachedPayload) {
+      await loadModels();
+      return;
+    }
+
+    const response = await fetch("/api/models");
+    if (!response.ok) {
+      throw new Error("Could not load timeline data");
+    }
+
+    applyPayload(await response.json());
   } catch (error) {
-    console.error(error);
-    elements.statusValue.textContent = "Error";
-    elements.caption.textContent = "Could not load timeline data";
-    elements.chart.innerHTML = `
-      <rect x="0" y="0" width="${chartConfig.width}" height="${chartConfig.height}" rx="28" fill="rgba(255,255,255,0.72)"></rect>
-      <text x="${chartConfig.width / 2}" y="${chartConfig.height / 2}" text-anchor="middle" class="timeline-empty">
-        Could not load data from the API.
-      </text>
-    `;
+    if (!cachedPayload) {
+      console.error(error);
+      elements.statusValue.textContent = "Error";
+      elements.caption.textContent = "Could not load timeline data";
+      elements.chart.innerHTML = `
+        <rect x="0" y="0" width="${chartConfig.width}" height="${chartConfig.height}" rx="28" fill="rgba(255,255,255,0.72)"></rect>
+        <text x="${chartConfig.width / 2}" y="${chartConfig.height / 2}" text-anchor="middle" class="timeline-empty">
+          Could not load data from the API.
+        </text>
+      `;
+      return;
+    }
+
+    console.warn("Background refresh failed", error);
   }
 }
 

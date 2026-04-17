@@ -19,6 +19,10 @@
   color-scheme: light;
 }
 
+@view-transition {
+  navigation: auto;
+}
+
 :root[data-theme="dark"] {
   --primary: #f5f7fb;
   --secondary: #a9b3c3;
@@ -52,6 +56,19 @@ body {
 
 body {
   padding: 0;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+  animation-timing-function: ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 0ms;
+  }
 }
 
 .page-shell {
@@ -333,15 +350,10 @@ td small {
   line-height: 1;
 }
 
-#status-value {
+#status-value,
+#timeline-status-value {
   display: block;
   min-height: 208px;
-}
-
-#timeline-status-value {
-  display: flex;
-  align-items: flex-end;
-  min-height: 3.4rem;
 }
 
 .hero-panel-ranking {

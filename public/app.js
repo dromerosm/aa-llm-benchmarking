@@ -10,6 +10,9 @@ const state = {
   expandedColumns: false,
 };
 
+const SESSION_CACHE_KEY = "aa-models-payload-v1";
+const LOADING_INDICATOR_DELAY_MS = 180;
+
 const elements = {
   pageShell: document.querySelector(".page-shell"),
   heroMeta: document.querySelector("#hero-meta"),
@@ -103,6 +106,48 @@ function formatUpdatedLabel(dateString) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(dateString))}`;
+}
+
+function readCachedPayload() {
+  try {
+    const raw = sessionStorage.getItem(SESSION_CACHE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const payload = JSON.parse(raw);
+    if (!payload || !Array.isArray(payload.models)) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedPayload(payload) {
+  try {
+    sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(payload));
+  } catch {}
+}
+
+function createLoadingIndicator() {
+  let timerId = null;
+
+  return {
+    schedule() {
+      timerId = window.setTimeout(() => {
+        elements.statusValue.textContent = "Loading";
+      }, LOADING_INDICATOR_DELAY_MS);
+    },
+    clear() {
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+        timerId = null;
+      }
+    },
+  };
 }
 
 function rankByMetric(models, metric, direction) {
@@ -513,19 +558,29 @@ function renderTable() {
 }
 
 async function loadModels() {
-  elements.statusValue.textContent = "Loading";
+  const loadingIndicator = createLoadingIndicator();
+  loadingIndicator.schedule();
 
-  const response = await fetch("/api/models");
-  if (!response.ok) {
-    throw new Error("Could not load the leaderboard");
+  try {
+    const response = await fetch("/api/models");
+    if (!response.ok) {
+      throw new Error("Could not load the leaderboard");
+    }
+
+    applyPayload(await response.json());
+  } finally {
+    loadingIndicator.clear();
   }
+}
 
-  const payload = await response.json();
+function applyPayload(payload) {
   state.models = payload.models || [];
   state.apiStatus = payload.apiStatus ?? null;
   state.refreshedAt = payload.refreshedAt;
   state.promptOptions = payload.promptOptions || {};
   state.cache = payload.cache || null;
+
+  writeCachedPayload(payload);
 
   renderHeroMeta();
   renderHeroSpotlight();
@@ -582,15 +637,35 @@ function bindEvents() {
 async function init() {
   bindEvents();
 
+  const cachedPayload = readCachedPayload();
+  if (cachedPayload) {
+    applyPayload(cachedPayload);
+  }
+
   try {
-    await loadModels();
+    if (!cachedPayload) {
+      await loadModels();
+      return;
+    }
+
+    const response = await fetch("/api/models");
+    if (!response.ok) {
+      throw new Error("Could not load the leaderboard");
+    }
+
+    applyPayload(await response.json());
   } catch (error) {
-    elements.statusValue.textContent = "Error";
-    elements.tableCaption.textContent = "Failed to load models";
-    elements.tableHead.innerHTML = "";
-    elements.tableBody.innerHTML =
-      '<tr><td colspan="1">Could not load data from the API.</td></tr>';
-    console.error(error);
+    if (!cachedPayload) {
+      elements.statusValue.textContent = "Error";
+      elements.tableCaption.textContent = "Failed to load models";
+      elements.tableHead.innerHTML = "";
+      elements.tableBody.innerHTML =
+        '<tr><td colspan="1">Could not load data from the API.</td></tr>';
+      console.error(error);
+      return;
+    }
+
+    console.warn("Background refresh failed", error);
   }
 }
 

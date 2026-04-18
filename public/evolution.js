@@ -1295,6 +1295,9 @@ function endChartPan(event) {
 
   if (state.chartPan.moved) {
     state.suppressChartClickUntil = performance.now() + 250;
+    if (elements.chart.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
   }
 
   elements.chartWrap.releasePointerCapture?.(event.pointerId);

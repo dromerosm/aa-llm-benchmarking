@@ -52,6 +52,8 @@ npm ci
 
 Wrangler is installed as a project dev dependency and is used for local development and deployment.
 
+`npm install` also configures the repository to use the versioned Git hooks in `.githooks/`.
+
 ## Local Development
 
 Cloudflare recommends storing local Worker secrets in `.dev.vars` or `.env`. This project is configured to require `API_KEY_AA`.
@@ -148,6 +150,8 @@ Deploy:
 npm run deploy
 ```
 
+`npm run deploy` now runs a Lighthouse check against `/` and `/evolution` before pushing the Workers to Cloudflare.
+
 Wrangler will deploy:
 
 - the internal models Worker first
@@ -197,12 +201,29 @@ Important:
 
 | Script | Command | Purpose |
 | --- | --- | --- |
+| `npm run prepare` | `node ./scripts/install-git-hooks.mjs` | Configure Git to use the repository's versioned hooks in `.githooks`. |
 | `npm run dev` | `wrangler dev -c wrangler.jsonc -c wrangler.models.jsonc` | Run the public Worker and the private models Worker together in local development. |
 | `npm start` | `wrangler dev -c wrangler.jsonc -c wrangler.models.jsonc` | Alias for local development. |
+| `npm run lighthouse` | `node ./scripts/run-lighthouse-check.mjs` | Run Lighthouse against `/` and `/evolution`, starting `wrangler dev` automatically if needed. |
 | `npm run deploy` | `wrangler deploy -c wrangler.models.jsonc --secrets-file .env && wrangler deploy -c wrangler.jsonc` | Deploy the internal models Worker first and then the public Worker. |
 | `npm run deploy:public` | `wrangler deploy -c wrangler.jsonc` | Deploy only the public Worker. |
 | `npm run deploy:models` | `wrangler deploy -c wrangler.models.jsonc --secrets-file .env` | Deploy only the private models Worker with secrets. |
 | `npm run types` | `wrangler types -c wrangler.jsonc -c wrangler.models.jsonc` | Generate Cloudflare runtime types from both Worker configs. |
+
+## Quality Gates
+
+Lighthouse is enforced in three places:
+
+- before `git commit` through `.githooks/pre-commit`
+- before `git push` through `.githooks/pre-push`
+- before `npm run deploy` through the `predeploy` script
+
+The Lighthouse check audits:
+
+- `http://127.0.0.1:8787/`
+- `http://127.0.0.1:8787/evolution`
+
+If no local app is already running on port `8787`, the check starts `npm run dev` automatically and stops it when the audit completes.
 
 ## Project Structure
 
@@ -386,6 +407,7 @@ The main view includes:
 The timeline view includes:
 
 - creator multi-select
+- a time range combo with 7 days, 30 days, 3 months, and Max
 - search and minimum intelligence filters
 - priced-only toggle
 - interactive labels and tooltip

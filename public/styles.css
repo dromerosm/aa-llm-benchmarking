@@ -524,8 +524,10 @@ td small {
 .timeline-controls {
   grid-template-columns:
     minmax(220px, 0.8fr)
+    minmax(280px, 0.95fr)
     minmax(170px, 0.45fr)
-    minmax(320px, 1.35fr)
+    minmax(280px, 1.2fr)
+    auto
     auto;
 }
 
@@ -556,6 +558,10 @@ td small {
 .control-multiselect {
   position: relative;
   z-index: 7;
+}
+
+.control-range {
+  align-self: start;
 }
 
 .control input,

@@ -9,6 +9,7 @@ const state = {
   chartView: null,
   chartPan: null,
   suppressChartClickUntil: 0,
+  activeTimeRange: null,
 };
 
 const SESSION_CACHE_KEY = "aa-models-payload-v1";
@@ -25,6 +26,7 @@ const elements = {
   creatorFilter: document.querySelector("#timeline-creator-filter"),
   creatorsAllButton: document.querySelector("#timeline-creators-all"),
   creatorsNoneButton: document.querySelector("#timeline-creators-none"),
+  timeRangeSelect: document.querySelector("#timeline-range-select"),
   minIntelligenceInput: document.querySelector("#timeline-min-intelligence"),
   searchInput: document.querySelector("#timeline-search-input"),
   pricedOnly: document.querySelector("#timeline-priced-only"),
@@ -50,9 +52,31 @@ const LABEL_LIMITS = {
   veryDense: 72,
 };
 const DEFAULT_TOP_CREATOR_COUNT = 10;
+const DEFAULT_TIME_RANGE_MODE = "max";
 const MIN_X_ZOOM_SPAN_MS = 1000 * 60 * 60 * 24 * 45;
 const MIN_Y_ZOOM_SPAN = 6;
 const PAN_DRAG_THRESHOLD_PX = 6;
+const TIME_RANGE_PRESETS = Object.freeze({
+  "7d": {
+    label: "7 days",
+    kind: "days",
+    amount: 7,
+  },
+  "30d": {
+    label: "30 days",
+    kind: "days",
+    amount: 30,
+  },
+  "3m": {
+    label: "3 months",
+    kind: "months",
+    amount: 3,
+  },
+  max: {
+    label: "Max",
+    kind: "max",
+  },
+});
 
 const numberFormat = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 1,
@@ -114,7 +138,7 @@ function formatMonth(date) {
 }
 
 function formatDate(dateString) {
-  const date = new Date(dateString);
+  const date = dateString instanceof Date ? dateString : new Date(dateString);
   if (Number.isNaN(date.getTime())) {
     return "—";
   }
@@ -246,6 +270,121 @@ function getCreatorsSortedByTopIntelligence(models) {
 
     return left.localeCompare(right);
   });
+}
+
+function getTimelineEligibleModels() {
+  return state.models.filter(
+    (model) =>
+      model.releaseDate &&
+      model.intelligence !== null &&
+      model.intelligence !== undefined &&
+      !Number.isNaN(model.intelligence),
+  );
+}
+
+function getReleaseTimestamp(model) {
+  const releaseTimestamp = new Date(model.releaseDate).getTime();
+  return Number.isNaN(releaseTimestamp) ? null : releaseTimestamp;
+}
+
+function getTimelineDataExtent() {
+  const timestamps = getTimelineEligibleModels()
+    .map(getReleaseTimestamp)
+    .filter((timestamp) => timestamp !== null);
+
+  if (!timestamps.length) {
+    return null;
+  }
+
+  return {
+    min: Math.min(...timestamps),
+    max: Math.max(...timestamps),
+  };
+}
+
+function getActiveTimeRangeMode() {
+  return elements.timeRangeSelect?.value || DEFAULT_TIME_RANGE_MODE;
+}
+
+function getPresetTimeRange(mode) {
+  const preset = TIME_RANGE_PRESETS[mode];
+  const extent = getTimelineDataExtent();
+  if (!preset || !extent) {
+    return null;
+  }
+
+  const anchor = new Date(extent.max);
+  anchor.setHours(23, 59, 59, 999);
+
+  const start = new Date(anchor);
+  start.setHours(0, 0, 0, 0);
+
+  if (preset.kind === "max") {
+    return {
+      mode,
+      label: preset.label,
+      startMs: extent.min,
+      endMs: anchor.getTime(),
+    };
+  }
+
+  if (preset.kind === "days") {
+    start.setDate(start.getDate() - (preset.amount - 1));
+  }
+
+  if (preset.kind === "months") {
+    start.setMonth(start.getMonth() - preset.amount);
+  }
+
+  return {
+    mode,
+    label: preset.label,
+    startMs: start.getTime(),
+    endMs: anchor.getTime(),
+  };
+}
+
+function setActiveTimeRange(mode) {
+  const nextMode = TIME_RANGE_PRESETS[mode] ? mode : DEFAULT_TIME_RANGE_MODE;
+
+  if (elements.timeRangeSelect) {
+    elements.timeRangeSelect.value = nextMode;
+  }
+}
+
+function getActiveTimeRange() {
+  const mode = getActiveTimeRangeMode();
+
+  return getPresetTimeRange(mode);
+}
+
+function describeTimeRange(range) {
+  if (!range) {
+    return "All release dates";
+  }
+
+  return `${range.label} · ${formatDate(range.startMs)} to ${formatDate(range.endMs)}`;
+}
+
+function isModelWithinTimeRange(model, range) {
+  if (!range) {
+    return true;
+  }
+
+  const releaseTimestamp = getReleaseTimestamp(model);
+  if (releaseTimestamp === null) {
+    return false;
+  }
+
+  if (range.startMs !== null && releaseTimestamp < range.startMs) {
+    return false;
+  }
+
+  if (range.endMs !== null && releaseTimestamp > range.endMs) {
+    return false;
+  }
+
+  return true;
 }
 
 function modelFamilyName(model) {
@@ -1175,9 +1314,10 @@ function renderTimeline() {
   if (!isZoomed) {
     elements.chartWrap.classList.remove("is-panning");
   }
+  const timeRangeLabel = describeTimeRange(state.activeTimeRange);
   elements.caption.textContent = elements.showAllLabels.checked
-    ? `${chartState.visibleCount} visible points${isZoomed ? " in zoom" : ""} · all labels shown`
-    : `${chartState.visibleCount} visible points${isZoomed ? " in zoom" : ""} · ${chartState.labelledCount} labels shown`;
+    ? `${chartState.visibleCount} visible points${isZoomed ? " in zoom" : ""} · all labels shown · ${timeRangeLabel}`
+    : `${chartState.visibleCount} visible points${isZoomed ? " in zoom" : ""} · ${chartState.labelledCount} labels shown · ${timeRangeLabel}`;
 }
 
 function zoomChartAtPointer(event) {
@@ -1321,9 +1461,13 @@ function applyFilters() {
     elements.minIntelligenceInput.value.trim() !== "" && !Number.isNaN(minIntelligenceValue);
   const search = elements.searchInput.value.trim().toLowerCase();
   const pricedOnly = elements.pricedOnly.checked;
+  const timeRange = getActiveTimeRange();
+
+  state.activeTimeRange = timeRange;
 
   state.visibleModels = state.models
     .filter((model) => model.releaseDate && model.intelligence !== null)
+    .filter((model) => isModelWithinTimeRange(model, timeRange))
     .filter((model) => selectedCreators.has(model.creator))
     .filter((model) => (hasMinIntelligenceFilter ? model.intelligence >= minIntelligenceValue : true))
     .filter((model) => (pricedOnly ? model.priceBlended !== null && model.priceBlended > 0 : true))
@@ -1346,6 +1490,7 @@ function applyPayload(payload) {
 
   writeCachedPayload(payload);
 
+  setActiveTimeRange(getActiveTimeRangeMode());
   renderHeroMeta();
   renderHeroSpotlight();
   populateCreatorFilter();
@@ -1363,6 +1508,10 @@ function bindEvents() {
   });
   elements.creatorsNoneButton.addEventListener("click", () => {
     setCreatorSelection("none");
+    applyFilters();
+  });
+  elements.timeRangeSelect.addEventListener("change", () => {
+    setActiveTimeRange(elements.timeRangeSelect.value);
     applyFilters();
   });
   elements.creatorSearchInput.addEventListener("input", filterCreatorOptions);

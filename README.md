@@ -211,21 +211,6 @@ Important:
 | `npm run deploy:models` | `wrangler deploy -c wrangler.models.jsonc --secrets-file .env` | Deploy only the private models Worker with secrets. |
 | `npm run types` | `wrangler types -c wrangler.jsonc -c wrangler.models.jsonc` | Generate Cloudflare runtime types from both Worker configs. |
 
-## Quality Gates
-
-Lighthouse is enforced in three places:
-
-- before `git commit` through `.githooks/pre-commit`
-- before `git push` through `.githooks/pre-push`
-- before `npm run deploy` through the `predeploy` script
-
-The Lighthouse check audits:
-
-- `http://127.0.0.1:8787/`
-- `http://127.0.0.1:8787/evolution`
-
-If no local app is already running on port `8787`, the check starts `npm run dev` automatically and stops it when the audit completes.
-
 ## Project Structure
 
 ```text

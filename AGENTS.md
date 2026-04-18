@@ -45,6 +45,18 @@ Repository instructions for humans and coding agents working on this project.
 - If the user requests Playwright and DevTools validation, run both before reporting success. If DevTools MCP is unavailable or cannot attach to a page, state that explicitly instead of implying the check was completed.
 - When behavior changes, update documentation in the same change.
 
+## Lighthouse Process
+
+- Google Lighthouse is part of the contributor and agent workflow, not product documentation.
+- Run `npm run lighthouse` before `git commit`, before `git push`, and before `npm run deploy`.
+- The repository enforces this through `.githooks/pre-commit`, `.githooks/pre-push`, and the `predeploy` script.
+- The default audit targets are `http://127.0.0.1:8787/` and `http://127.0.0.1:8787/evolution`.
+- If nothing is running on port `8787`, the audit script starts `npm run dev` automatically and stops it after the audit completes.
+- Current minimum thresholds are `performance >= 75`, `accessibility >= 90`, `best-practices >= 90`, and `seo >= 90`.
+- To audit the deployed site explicitly, run `LIGHTHOUSE_BASE_URL=https://llm-benchmarks.diegoromero.es npm run lighthouse`.
+- Supported environment variables for the audit script are `LIGHTHOUSE_BASE_URL`, `LIGHTHOUSE_HOST`, `LIGHTHOUSE_PORT`, `LIGHTHOUSE_CHROME_PORT`, and `LIGHTHOUSE_SERVER_TIMEOUT_MS`.
+- Production Lighthouse results may differ from local results because Cloudflare can inject additional scripts or headers at the edge.
+
 ## Definition of Done
 
 - New copy is in English.

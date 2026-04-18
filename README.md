@@ -14,6 +14,7 @@ The project serves a static frontend from Cloudflare Assets and keeps model retr
 - Edge caching and in-isolate memory caching for normalized API responses
 - Durable Object coordination to cap upstream refreshes at 750 requests per UTC day
 - Security hardening through response headers, secret handling, and method restrictions
+- CSP headers that stay compatible with Cloudflare challenge and analytics script injection
 
 ## Cloudflare Architecture
 

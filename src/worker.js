@@ -16,16 +16,34 @@ function serializeBootstrapPayload(payload) {
   return JSON.stringify(payload).replaceAll("<", "\\u003c");
 }
 
+function createScriptNonce() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+
+  return btoa(String.fromCharCode(...bytes));
+}
+
 class ModelsPayloadInjector {
-  constructor(payload) {
+  constructor(payload, nonce) {
     this.payload = payload;
+    this.nonce = nonce;
   }
 
   element(element) {
     element.append(
-      `<script id="${MODEL_BOOTSTRAP_ID}" type="application/json">${serializeBootstrapPayload(this.payload)}</script>`,
+      `<script id="${MODEL_BOOTSTRAP_ID}" type="application/json" nonce="${this.nonce}">${serializeBootstrapPayload(this.payload)}</script>`,
       { html: true },
     );
+  }
+}
+
+class ScriptNonceInjector {
+  constructor(nonce) {
+    this.nonce = nonce;
+  }
+
+  element(element) {
+    element.setAttribute("nonce", this.nonce);
   }
 }
 
@@ -50,7 +68,7 @@ async function fetchModelsPayload(env) {
   return response.json();
 }
 
-async function handleAssetRequest(request, env) {
+async function handleAssetRequest(request, env, nonce) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response(null, {
       status: 405,
@@ -63,29 +81,38 @@ async function handleAssetRequest(request, env) {
   const url = new URL(request.url);
   const assetResponse = await env.ASSETS.fetch(request);
 
-  if (request.method === "HEAD" || !isBootstrapDocument(url.pathname)) {
+  if (request.method === "HEAD" || !assetResponse.headers.get("content-type")?.includes("text/html")) {
     return assetResponse;
+  }
+
+  const rewriter = new HTMLRewriter().on("script", new ScriptNonceInjector(nonce));
+
+  if (!isBootstrapDocument(url.pathname)) {
+    return rewriter.transform(assetResponse);
   }
 
   try {
     const payload = await fetchModelsPayload(env);
-    return new HTMLRewriter().on("head", new ModelsPayloadInjector(payload)).transform(assetResponse);
+    return rewriter
+      .on("head", new ModelsPayloadInjector(payload, nonce))
+      .transform(assetResponse);
   } catch (error) {
     console.error("Failed to bootstrap models payload", {
       message: error instanceof Error ? error.message : String(error),
       pathname: url.pathname,
     });
-    return assetResponse;
+    return rewriter.transform(assetResponse);
   }
 }
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const nonce = createScriptNonce();
     const response = url.pathname === "/api/models"
       ? notFoundResponse()
-      : await handleAssetRequest(request, env);
+      : await handleAssetRequest(request, env, nonce);
 
-    return applySecurityHeaders(response, request);
+    return applySecurityHeaders(response, request, { nonce });
   },
 };

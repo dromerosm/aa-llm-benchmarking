@@ -1,4 +1,4 @@
-const HTML_CSP = [
+const HTML_CSP_DIRECTIVES = [
   "default-src 'self'",
   "base-uri 'self'",
   "connect-src 'self'",
@@ -9,8 +9,7 @@ const HTML_CSP = [
   "object-src 'none'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "upgrade-insecure-requests",
-].join("; ");
+];
 
 function isHtmlResponse(response) {
   const contentType = response.headers.get("content-type") || "";
@@ -19,6 +18,7 @@ function isHtmlResponse(response) {
 
 export function applySecurityHeaders(response, request) {
   const headers = new Headers(response.headers);
+  const isHttpsRequest = request.url.startsWith("https://");
 
   headers.set("Cross-Origin-Opener-Policy", "same-origin");
   headers.set("Cross-Origin-Resource-Policy", "same-origin");
@@ -30,12 +30,16 @@ export function applySecurityHeaders(response, request) {
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
 
-  if (request.url.startsWith("https://")) {
+  if (isHttpsRequest) {
     headers.set("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
   }
 
   if (isHtmlResponse(response)) {
-    headers.set("Content-Security-Policy", HTML_CSP);
+    const htmlCsp = [
+      ...HTML_CSP_DIRECTIVES,
+      ...(isHttpsRequest ? ["upgrade-insecure-requests"] : []),
+    ].join("; ");
+    headers.set("Content-Security-Policy", htmlCsp);
   }
 
   return new Response(response.body, {

@@ -1,6 +1,6 @@
 # AA LLM Benchmarking
 
-A Cloudflare Worker application that visualizes LLM benchmark data from the Artificial Analysis API.
+A Cloudflare Worker application that visualizes LLM plus speech, image, and video benchmark data from the Artificial Analysis API.
 
 The project serves a static frontend from Cloudflare Assets and keeps model retrieval behind an internal Worker-to-Worker service binding. The browser does not call the upstream-backed data service directly.
 
@@ -8,11 +8,13 @@ The project serves a static frontend from Cloudflare Assets and keeps model retr
 
 - `Leaderboard` view with filtering, sorting, pagination, and expandable metrics
 - `Intelligence Timeline` view with an SVG scatter plot by release date and intelligence
+- `Speech, Image & Video` view aggregating the remaining Artificial Analysis free API media endpoints
 - Cloudflare Worker runtime entrypoint for public asset handling
 - Internal models Worker reachable only through a service binding
 - Wrangler configuration for local development and deployment
 - Edge caching and in-isolate memory caching for normalized API responses
-- Durable Object coordination to cap upstream refreshes at 750 requests per UTC day
+- Durable Object coordination to cap upstream refreshes at 1,000 requests per UTC day
+- Durable Object pacing to keep at least 3 seconds between upstream API requests
 - Security hardening through response headers, secret handling, and method restrictions
 - CSP headers that stay compatible with Cloudflare challenge and analytics script injection
 
@@ -22,9 +24,9 @@ This project is designed for Cloudflare Workers with static assets and a private
 
 - Static files are served from `public/`
 - Public request handling runs in `src/worker.js`
-- Internal model retrieval runs in `src/models-worker.js`
+- Internal upstream retrieval runs in `src/models-worker.js`
 - The public Worker serves frontend assets through the `ASSETS` binding
-- The public Worker fetches model data from the internal Worker through the `MODELS_SERVICE` service binding
+- The public Worker fetches LLM and media payloads from the internal Worker through the `MODELS_SERVICE` service binding
 - The internal Worker owns the Artificial Analysis API key, edge cache, and upstream budget Durable Object
 - `/api/models` is intentionally not exposed publicly
 
@@ -33,6 +35,7 @@ Key runtime files:
 - [src/worker.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/worker.js)
 - [src/models-worker.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/models-worker.js)
 - [src/model-service.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/model-service.js)
+- [src/media-service.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/media-service.js)
 - [src/security.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/security.js)
 - [src/upstream-budget.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/upstream-budget.js)
 - [wrangler.jsonc](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/wrangler.jsonc)
@@ -103,12 +106,14 @@ npm run dev
 
 - `http://localhost:8787/`
 - `http://localhost:8787/evolution`
+- `http://localhost:8787/speech-image-video`
 
 6. Verify the public routes:
 
 ```bash
 curl -I http://localhost:8787/
 curl -I http://localhost:8787/evolution
+curl -I http://localhost:8787/speech-image-video
 curl -I http://localhost:8787/api/models
 ```
 
@@ -116,6 +121,7 @@ Expected local behavior:
 
 - `/` returns `200`
 - `/evolution` returns `200`
+- `/speech-image-video` returns `200`
 - `/api/models` returns `404`
 
 Wrangler will automatically serve static assets from `public/`, run the public Worker from `src/worker.js`, and connect it to `src/models-worker.js` through a local service binding.
@@ -130,6 +136,7 @@ Wrangler serves the app locally on:
 
 - `http://localhost:8787/`
 - `http://localhost:8787/evolution`
+- `http://localhost:8787/speech-image-video`
 
 ## Deploying to Cloudflare
 
@@ -164,6 +171,7 @@ Production URLs:
 
 - `https://llm-benchmarks.diegoromero.es/`
 - `https://llm-benchmarks.diegoromero.es/evolution`
+- `https://llm-benchmarks.diegoromero.es/speech-image-video`
 
 ## Cloudflare Security Deployment
 
@@ -218,12 +226,15 @@ Important:
 ├── public/
 │   ├── index.html
 │   ├── evolution.html
+│   ├── speech-image-video.html
 │   ├── app.js
 │   ├── evolution.js
+│   ├── speech-image-video.js
 │   ├── styles.css
 │   └── favicon.svg
 ├── src/
 │   ├── model-service.js
+│   ├── media-service.js
 │   ├── models-worker.js
 │   ├── error.js
 │   ├── security.js
@@ -244,6 +255,7 @@ Important:
 | --- | --- | --- |
 | `/` | `GET` | Main leaderboard page. |
 | `/evolution` | `GET` | Timeline chart page. |
+| `/speech-image-video` | `GET` | Aggregated speech, image, and video page. |
 | `/api/models` | `GET`, `HEAD` | Intentionally unavailable from the public Worker and returns `404`. |
 
 All other non-asset or unsupported methods return the appropriate Worker response status.
@@ -399,6 +411,17 @@ The timeline view includes:
 - interactive labels and tooltip
 - SVG chart rendering without external charting libraries
 
+### Speech, Image & Video
+
+The media view includes:
+
+- one aggregated table across text-to-image, image-editing, text-to-speech, text-to-video, and image-to-video
+- endpoint and creator filters
+- category-breakdown toggle
+- sortable ELO, appearances, release date, and rank columns
+- expandable columns for CI95, modality, and category previews
+- pagination
+
 ## Validation
 
 Recommended local validation:
@@ -415,6 +438,7 @@ Then check:
 ```bash
 curl -I http://localhost:8787/
 curl -I http://localhost:8787/evolution
+curl -I http://localhost:8787/speech-image-video
 curl -I http://localhost:8787/api/models
 ```
 
@@ -422,12 +446,14 @@ Expected:
 
 - `/` => `200`
 - `/evolution` => `200`
+- `/speech-image-video` => `200`
 - `/api/models` => `404`
 
 And open:
 
 - `http://localhost:8787/`
 - `http://localhost:8787/evolution`
+- `http://localhost:8787/speech-image-video`
 
 If Playwright browser binaries are missing:
 
@@ -443,7 +469,7 @@ Terraform configuration for WAF and rate limiting was added, but it was not appl
 
 Set local secrets in `.dev.vars` or use Wrangler secrets in a deployed environment.
 
-### The page renders but model data is missing
+### The page renders but upstream data is missing
 
 Common causes:
 

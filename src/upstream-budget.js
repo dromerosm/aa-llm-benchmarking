@@ -22,13 +22,17 @@ function createEmptyState(timestamp) {
     inflightExpiresAt: 0,
     lastRefreshStartedAt: 0,
     lastRefreshCompletedAt: 0,
+    lastUpstreamRequestAt: 0,
   };
 }
 
 export class UpstreamBudgetCoordinator extends DurableObject {
   async loadState(timestamp) {
     const stored = await this.ctx.storage.get(STATE_KEY);
-    const state = stored || createEmptyState(timestamp);
+    const state = {
+      ...createEmptyState(timestamp),
+      ...(stored || {}),
+    };
     const dayKey = dayKeyFromTimestamp(timestamp);
 
     if (state.dayKey !== dayKey) {
@@ -44,7 +48,20 @@ export class UpstreamBudgetCoordinator extends DurableObject {
     return state;
   }
 
-  async acquireRefreshSlot({ now = Date.now(), dailyLimit }) {
+  async scheduleUpstreamRequest({ now = Date.now(), minIntervalMs = 0 }) {
+    const state = await this.loadState(now);
+    const scheduledAt = Math.max(now, state.lastUpstreamRequestAt + minIntervalMs);
+
+    state.lastUpstreamRequestAt = scheduledAt;
+    await this.ctx.storage.put(STATE_KEY, state);
+
+    return {
+      scheduledAt,
+      waitMs: Math.max(0, scheduledAt - now),
+    };
+  }
+
+  async acquireRefreshSlot({ now = Date.now(), dailyLimit, cost = 1 }) {
     const state = await this.loadState(now);
 
     if (state.refreshInProgress) {
@@ -58,7 +75,7 @@ export class UpstreamBudgetCoordinator extends DurableObject {
       };
     }
 
-    if (state.usedToday >= dailyLimit) {
+    if (state.usedToday + cost > dailyLimit) {
       return {
         allowed: false,
         reason: "daily-limit",
@@ -69,7 +86,7 @@ export class UpstreamBudgetCoordinator extends DurableObject {
       };
     }
 
-    state.usedToday += 1;
+    state.usedToday += cost;
     state.refreshInProgress = true;
     state.lastRefreshStartedAt = now;
     state.inflightToken = `${state.dayKey}:${state.usedToday}:${now}`;

@@ -2,12 +2,13 @@ import { ApiError } from "./error.js";
 
 const UPSTREAM_URL = "https://artificialanalysis.ai/api/v2/data/llms/models";
 const CACHE_TTL_MS = 10 * 60 * 1000;
-const DAILY_UPSTREAM_LIMIT = 750;
+const DAILY_UPSTREAM_LIMIT = 1_000;
 const CLIENT_CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=120";
 const EDGE_CACHE_PATH = "/__cache/models";
 const EDGE_CACHE_CONTROL = "public, max-age=31536000";
-const UPSTREAM_BUDGET_OBJECT = "artificial-analysis-models";
+const UPSTREAM_BUDGET_OBJECT = "artificial-analysis-api";
 const INFLIGHT_RETRY_DELAY_MS = 1_000;
+const MIN_UPSTREAM_REQUEST_INTERVAL_MS = 3_000;
 
 let memoryCache = {
   data: null,
@@ -147,6 +148,15 @@ function sleep(ms) {
 async function refreshFromUpstream(env) {
   if (!env.API_KEY_AA) {
     throw new Error("Missing required secret API_KEY_AA");
+  }
+
+  const upstreamWindow = await getBudgetStub(env).scheduleUpstreamRequest({
+    now: Date.now(),
+    minIntervalMs: MIN_UPSTREAM_REQUEST_INTERVAL_MS,
+  });
+
+  if (upstreamWindow.waitMs > 0) {
+    await sleep(upstreamWindow.waitMs);
   }
 
   const response = await fetch(UPSTREAM_URL, {

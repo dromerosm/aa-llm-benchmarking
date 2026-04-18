@@ -1,7 +1,19 @@
 import { applySecurityHeaders } from "./security.js";
 
-const MODEL_BOOTSTRAP_ID = "aa-models-payload";
-const MODELS_SERVICE_URL = "https://models.internal/models";
+const BOOTSTRAP_CONFIG = {
+  "/": {
+    scriptId: "aa-models-payload",
+    serviceUrl: "https://models.internal/models",
+  },
+  "/evolution": {
+    scriptId: "aa-models-payload",
+    serviceUrl: "https://models.internal/models",
+  },
+  "/speech-image-video": {
+    scriptId: "aa-media-payload",
+    serviceUrl: "https://models.internal/media",
+  },
+};
 
 function notFoundResponse() {
   return new Response("Not Found", {
@@ -23,15 +35,16 @@ function createScriptNonce() {
   return btoa(String.fromCharCode(...bytes));
 }
 
-class ModelsPayloadInjector {
-  constructor(payload, nonce) {
+class PayloadInjector {
+  constructor(payload, nonce, scriptId) {
     this.payload = payload;
     this.nonce = nonce;
+    this.scriptId = scriptId;
   }
 
   element(element) {
     element.append(
-      `<script id="${MODEL_BOOTSTRAP_ID}" type="application/json" nonce="${this.nonce}">${serializeBootstrapPayload(this.payload)}</script>`,
+      `<script id="${this.scriptId}" type="application/json" nonce="${this.nonce}">${serializeBootstrapPayload(this.payload)}</script>`,
       { html: true },
     );
   }
@@ -48,12 +61,12 @@ class ScriptNonceInjector {
 }
 
 function isBootstrapDocument(pathname) {
-  return pathname === "/" || pathname === "/evolution";
+  return Object.hasOwn(BOOTSTRAP_CONFIG, pathname);
 }
 
-async function fetchModelsPayload(env) {
+async function fetchBootstrapPayload(env, serviceUrl) {
   const response = await env.MODELS_SERVICE.fetch(
-    new Request(MODELS_SERVICE_URL, {
+    new Request(serviceUrl, {
       method: "GET",
       headers: {
         Accept: "application/json",
@@ -92,12 +105,13 @@ async function handleAssetRequest(request, env, nonce) {
   }
 
   try {
-    const payload = await fetchModelsPayload(env);
+    const config = BOOTSTRAP_CONFIG[url.pathname];
+    const payload = await fetchBootstrapPayload(env, config.serviceUrl);
     return rewriter
-      .on("head", new ModelsPayloadInjector(payload, nonce))
+      .on("head", new PayloadInjector(payload, nonce, config.scriptId))
       .transform(assetResponse);
   } catch (error) {
-    console.error("Failed to bootstrap models payload", {
+    console.error("Failed to bootstrap page payload", {
       message: error instanceof Error ? error.message : String(error),
       pathname: url.pathname,
     });

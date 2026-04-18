@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Speech, Image & Video | Artificial Analysis Explorer</title>
+    <meta
+      name="description"
+      content="Explore the remaining Artificial Analysis free API endpoints for speech, image, and video in one aggregated leaderboard."
+    />
+    <link rel="icon" href="/favicon.ico" sizes="any" type="image/x-icon" />
+    <script src="/theme.js"></script>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="page-shell page-shell-wide">
+      <nav class="page-nav">
+        <a
+          class="site-brand"
+          href="https://diegoromero.es/"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Visit diegoromero.es"
+        >
+          diegoromero.es
+        </a>
+        <div class="page-nav-utilities">
+          <div class="page-nav-links">
+            <a class="page-nav-link" href="/">LLM</a>
+            <a class="page-nav-link" href="/evolution">Intelligence Timeline</a>
+            <a class="page-nav-link is-active" href="/speech-image-video">Speech, Image &amp; Video</a>
+          </div>
+          <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme" type="button">
+            <svg
+              class="sun"
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <svg
+              class="moon"
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </button>
+        </div>
+      </nav>
+
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Artificial Analysis / Media Endpoints</p>
+          <h1>Speech, Image &amp; Video</h1>
+          <p class="hero-supporting-label">Powered by</p>
+          <a
+            class="hero-brand"
+            href="https://artificialanalysis.ai/"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Visit Artificial Analysis"
+          >
+            <img
+              src="/artificial-analysis-logo-two-lines.svg"
+              alt="Artificial Analysis"
+              width="622"
+              height="218"
+            />
+          </a>
+          <div class="hero-meta" id="hero-meta"></div>
+          <p class="hero-text">
+            This view aggregates the remaining public Artificial Analysis endpoints:
+            text to image, image editing, text to speech, text to video, and image
+            to video. It keeps the full response coverage from those endpoint
+            families in one table so you can filter by modality, creator, release
+            timing, and category coverage without switching between separate
+            leaderboards.
+          </p>
+          <div class="hero-attribution">
+            <p class="hero-attribution-title">Methodology description</p>
+            <p class="hero-attribution-text">
+              Artificial Analysis independently benchmarks media model quality
+              with ELO-based comparisons and publishes the results through its
+              free API. Attribution to Artificial Analysis is required when
+              reusing the data.
+            </p>
+            <div class="link-list">
+              <span>Visit</span>
+              <a href="https://artificialanalysis.ai/api-reference" target="_blank" rel="noopener noreferrer">
+                API reference
+              </a>
+              <span aria-hidden="true">|</span>
+              <a href="https://artificialanalysis.ai/methodology" target="_blank" rel="noopener noreferrer">
+                Methodology
+              </a>
+              <span aria-hidden="true">|</span>
+              <a href="https://artificialanalysis.ai/" target="_blank" rel="noopener noreferrer">
+                Artificial Analysis
+              </a>
+            </div>
+          </div>
+        </div>
+        <div class="hero-panel">
+          <div class="hero-panel-label">Endpoint Coverage</div>
+          <div class="hero-panel-value" id="status-value"></div>
+          <p class="hero-panel-text">
+            Counts for the remaining Artificial Analysis free API endpoint
+            families that are aggregated into this page.
+          </p>
+        </div>
+      </header>
+
+      <section class="summary-grid" id="summary-grid" aria-labelledby="summary-grid-title">
+        <h2 id="summary-grid-title" class="sr-only">Media endpoint highlights</h2>
+      </section>
+
+      <section class="controls controls-primary" aria-labelledby="media-filters-title">
+        <h2 id="media-filters-title" class="sr-only">Media endpoint filters</h2>
+        <label class="control">
+          <span>Search</span>
+          <input
+            id="search-input"
+            type="search"
+            placeholder="Filter, e.g. OpenAI, Kling, image"
+          />
+        </label>
+
+        <label class="control">
+          <span>Endpoint</span>
+          <select id="endpoint-filter">
+            <option value="all">All</option>
+          </select>
+        </label>
+
+        <label class="control">
+          <span>Creator</span>
+          <select id="creator-filter">
+            <option value="all">All</option>
+          </select>
+        </label>
+
+        <button id="expand-columns-button" class="ghost-button" type="button">
+          Expand columns
+        </button>
+      </section>
+
+      <section class="controls controls-secondary" aria-labelledby="media-options-title">
+        <h2 id="media-options-title" class="sr-only">Media endpoint display options</h2>
+        <label class="control">
+          <span>Sort by</span>
+          <select id="sort-select">
+            <option value="elo-desc">ELO ↓</option>
+            <option value="appearances-desc">Appearances ↓</option>
+            <option value="release-desc">Release Date ↓</option>
+            <option value="rank-asc">Endpoint Rank ↑</option>
+            <option value="name-asc">Name A-Z</option>
+          </select>
+        </label>
+
+        <label class="control">
+          <span>Rows per page</span>
+          <select id="page-size-select">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+          </select>
+        </label>
+
+        <label class="toggle">
+          <input id="categories-only-toggle" type="checkbox" />
+          <span>Only entries with category breakdowns</span>
+        </label>
+      </section>
+
+      <section class="table-card">
+        <div class="table-meta">
+          <div>
+            <h2>Artificial Analysis Media Endpoints</h2>
+            <p id="table-caption"></p>
+          </div>
+          <div class="table-meta-right">
+            <p id="table-meta-right"></p>
+            <div class="table-pill-row" id="column-mode-pills"></div>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead id="table-head"></thead>
+            <tbody id="table-body"></tbody>
+          </table>
+        </div>
+
+        <div class="pagination" id="pagination">
+          <p class="pagination-status" id="pagination-status"></p>
+          <div class="pagination-actions">
+            <button id="prev-page-button" type="button">Previous</button>
+            <button id="next-page-button" type="button">Next</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="info-grid">
+        <article class="info-card">
+          <div class="info-card-header">
+            <p class="eyebrow">Reference</p>
+            <h2>Key Definitions</h2>
+          </div>
+          <div class="definition-list">
+            <details open>
+              <summary>ELO</summary>
+              <p>
+                Artificial Analysis publishes ELO-style quality scores for these
+                media endpoints. Higher values indicate stronger comparative
+                performance inside the same benchmark family.
+              </p>
+            </details>
+            <details>
+              <summary>Endpoint Rank</summary>
+              <p>
+                Rank is reported by Artificial Analysis within each endpoint, so
+                rank 1 can appear once per endpoint family.
+              </p>
+            </details>
+            <details>
+              <summary>CI95</summary>
+              <p>
+                Confidence interval around the reported ELO score, as published
+                by Artificial Analysis.
+              </p>
+            </details>
+            <details>
+              <summary>Appearances</summary>
+              <p>
+                Number of benchmark comparisons or appearances supporting the
+                reported score.
+              </p>
+            </details>
+            <details>
+              <summary>Category breakdowns</summary>
+              <p>
+                Some endpoints expose additional category-level ELO results. The
+                table can be filtered to show only entries that include those
+                breakdowns.
+              </p>
+            </details>
+          </div>
+        </article>
+      </section>
+
+      <footer class="site-footer">
+        <p class="site-footer-copy">© 2026 diegoromero.es. All rights reserved.</p>
+        <span class="site-footer-separator" aria-hidden="true">|</span>
+        <a
+          class="site-footer-link"
+          href="https://diegoromero.es/privacidad/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Privacy
+        </a>
+      </footer>
+    </div>
+
+    <template id="summary-card-template">
+      <article class="summary-card">
+        <p class="summary-label"></p>
+        <div class="summary-content">
+          <div>
+            <p class="summary-title"></p>
+            <p class="summary-subtitle"></p>
+          </div>
+          <p class="summary-metric"></p>
+        </div>
+      </article>
+    </template>
+
+    <script src="/speech-image-video.js" defer></script>
+  </body>
+</html>

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 622.89 218.22">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #4378df;
+      }
+
+      .cls-1, .cls-2, .cls-3, .cls-4 {
+        stroke-width: 0px;
+      }
+
+      .cls-1, .cls-2, .cls-4 {
+        fill-rule: evenodd;
+      }
+
+      .cls-2 {
+        fill: #1c369e;
+      }
+
+      .cls-5 {
+        fill: #231f20;
+        font-family: 'MPLUS2_540.000wght', 'M PLUS 2';
+        font-size: 79.92px;
+        font-variation-settings: 'wght' 540;
+      }
+
+      .cls-3 {
+        fill: #fff;
+      }
+
+      .cls-4 {
+        fill: #7870f2;
+      }
+    </style>
+  </defs>
+  <g id="Layer_1-2" data-name="Layer 1">
+    <g>
+      <rect class="cls-3" x="0" width="622.89" height="218.22" rx="40" ry="40"/>
+      <text class="cls-5" transform="translate(227.38 99.01)"><tspan x="0" y="0">Artificial</tspan><tspan x="0" y="75.48">Analysis</tspan></text>
+      <g>
+        <path class="cls-2" d="M167.39,174.48h31.12l-41.1-71.5-15.65,27.11c8.54,14.8,17.09,29.6,25.63,44.39"/>
+        <polygon class="cls-4" points="102 61.22 117.56 34.27 155.52 100.03 148.66 111.73 139.85 126.78 131.04 111.53 102 61.22"/>
+        <path class="cls-2" d="M115.67,91.44l-15.53-26.99-63.49,109.97h31.12c58.01-100.48,10.87-18.83,47.91-82.98"/>
+        <polygon class="cls-1" points="155.45 160.26 139.89 133.32 116.13 174.48 147.24 174.48 155.45 160.26"/>
+      </g>
+    </g>
+  </g>
+</svg>

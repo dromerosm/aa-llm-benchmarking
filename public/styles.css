@@ -277,6 +277,32 @@ td small {
   line-height: 1.6;
 }
 
+.hero-supporting-label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.hero-brand {
+  display: inline-flex;
+  width: min(160px, 100%);
+  margin-top: 12px;
+  text-decoration: none;
+}
+
+.hero-brand:hover {
+  opacity: 0.88;
+}
+
+.hero-brand img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .hero-text a {
   color: var(--accent-strong);
   font-weight: 700;

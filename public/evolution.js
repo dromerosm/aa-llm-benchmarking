@@ -370,7 +370,7 @@ function filterCreatorOptions() {
 
 function renderHeroMeta() {
   const pills = [
-    `${state.models.length} API models`,
+    `${state.models.length} models`,
     state.cache?.persistent ? "Edge cache: active" : "Edge cache: inactive",
     formatUpdatedLabel(state.refreshedAt),
   ].filter(Boolean);

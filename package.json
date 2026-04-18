@@ -4,8 +4,8 @@
   "description": "Cloudflare Worker app powered by the Artificial Analysis API",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev -c wrangler.jsonc -c wrangler.models.jsonc",
-    "start": "wrangler dev -c wrangler.jsonc -c wrangler.models.jsonc",
+    "dev": "wrangler dev -c wrangler.dev.jsonc -c wrangler.models.jsonc",
+    "start": "wrangler dev -c wrangler.dev.jsonc -c wrangler.models.jsonc",
     "deploy": "wrangler deploy -c wrangler.models.jsonc --secrets-file .env && wrangler deploy -c wrangler.jsonc",
     "deploy:public": "wrangler deploy -c wrangler.jsonc",
     "deploy:models": "wrangler deploy -c wrangler.models.jsonc --secrets-file .env",

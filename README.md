@@ -2,13 +2,14 @@
 
 A Cloudflare Worker application that visualizes LLM benchmark data from the Artificial Analysis API.
 
-The project serves a static frontend from Cloudflare Assets and exposes a Worker-backed `/api/models` endpoint that normalizes upstream data, applies edge-aware caching, and returns a frontend-friendly JSON payload.
+The project serves a static frontend from Cloudflare Assets and keeps model retrieval behind an internal Worker-to-Worker service binding. The browser does not call the upstream-backed data service directly.
 
 ## What This Project Includes
 
 - `Leaderboard` view with filtering, sorting, pagination, and expandable metrics
 - `Intelligence Timeline` view with an SVG scatter plot by release date and intelligence
-- Cloudflare Worker runtime entrypoint for API and asset handling
+- Cloudflare Worker runtime entrypoint for public asset handling
+- Internal models Worker reachable only through a service binding
 - Wrangler configuration for local development and deployment
 - Edge caching and in-isolate memory caching for normalized API responses
 - Durable Object coordination to cap upstream refreshes at 750 requests per UTC day
@@ -16,21 +17,25 @@ The project serves a static frontend from Cloudflare Assets and exposes a Worker
 
 ## Cloudflare Architecture
 
-This project is designed for Cloudflare Workers with static assets:
+This project is designed for Cloudflare Workers with static assets and a private internal data service:
 
 - Static files are served from `public/`
-- Application logic runs in `src/worker.js`
-- The Worker intercepts requests and serves:
-  - `/api/models` from Worker code
-  - all frontend assets through the `ASSETS` binding
+- Public request handling runs in `src/worker.js`
+- Internal model retrieval runs in `src/models-worker.js`
+- The public Worker serves frontend assets through the `ASSETS` binding
+- The public Worker fetches model data from the internal Worker through the `MODELS_SERVICE` service binding
+- The internal Worker owns the Artificial Analysis API key, edge cache, and upstream budget Durable Object
+- `/api/models` is intentionally not exposed publicly
 
 Key runtime files:
 
 - [src/worker.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/worker.js)
+- [src/models-worker.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/models-worker.js)
 - [src/model-service.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/model-service.js)
 - [src/security.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/security.js)
 - [src/upstream-budget.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/upstream-budget.js)
 - [wrangler.jsonc](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/wrangler.jsonc)
+- [wrangler.models.jsonc](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/wrangler.models.jsonc)
 
 ## Requirements
 
@@ -96,13 +101,21 @@ npm run dev
 - `http://localhost:8787/`
 - `http://localhost:8787/evolution`
 
-6. Optional quick API check:
+6. Verify the public routes:
 
 ```bash
-curl http://localhost:8787/api/models
+curl -I http://localhost:8787/
+curl -I http://localhost:8787/evolution
+curl -I http://localhost:8787/api/models
 ```
 
-Wrangler will automatically serve static assets from `public/` and run the Worker from `src/worker.js`.
+Expected local behavior:
+
+- `/` returns `200`
+- `/evolution` returns `200`
+- `/api/models` returns `404`
+
+Wrangler will automatically serve static assets from `public/`, run the public Worker from `src/worker.js`, and connect it to `src/models-worker.js` through a local service binding.
 
 Start the Worker locally:
 
@@ -123,10 +136,10 @@ Log in to Cloudflare if needed:
 npx wrangler login
 ```
 
-Set the production secret:
+Set the production secret on the internal models Worker:
 
 ```bash
-npx wrangler secret put API_KEY_AA
+npx wrangler secret put API_KEY_AA -c wrangler.models.jsonc
 ```
 
 Deploy:
@@ -137,15 +150,22 @@ npm run deploy
 
 Wrangler will deploy:
 
-- the Worker code
+- the internal models Worker first
+- the public Worker second
 - the static assets in `public/`
+- the custom domain `llm-benchmarks.diegoromero.es`
+
+Production URLs:
+
+- `https://llm-benchmarks.diegoromero.es/`
+- `https://llm-benchmarks.diegoromero.es/evolution`
 
 ## Cloudflare Security Deployment
 
 The production recommendations from [SECURITY.md](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/SECURITY.md) for:
 
 1. WAF managed rules
-2. Rate limiting for `/api/models`
+2. Rate limiting for a public data endpoint if you reintroduce one
 
 are implemented as Terraform infrastructure in:
 
@@ -156,7 +176,7 @@ This adds:
 
 - zone-level Cloudflare Managed Ruleset execution
 - zone-level Cloudflare OWASP Core Ruleset execution
-- zone-level rate limiting for `GET` and `HEAD` requests to `/api/models`
+- optional zone-level rate limiting for `GET` and `HEAD` requests to `/api/models`
 
 Basic workflow:
 
@@ -177,10 +197,12 @@ Important:
 
 | Script | Command | Purpose |
 | --- | --- | --- |
-| `npm run dev` | `wrangler dev` | Run the Worker locally with Cloudflare tooling. |
-| `npm start` | `wrangler dev` | Alias for local development. |
-| `npm run deploy` | `wrangler deploy` | Deploy the Worker and static assets. |
-| `npm run types` | `wrangler types` | Generate Cloudflare runtime types from config. |
+| `npm run dev` | `wrangler dev -c wrangler.jsonc -c wrangler.models.jsonc` | Run the public Worker and the private models Worker together in local development. |
+| `npm start` | `wrangler dev -c wrangler.jsonc -c wrangler.models.jsonc` | Alias for local development. |
+| `npm run deploy` | `wrangler deploy -c wrangler.models.jsonc --secrets-file .env && wrangler deploy -c wrangler.jsonc` | Deploy the internal models Worker first and then the public Worker. |
+| `npm run deploy:public` | `wrangler deploy -c wrangler.jsonc` | Deploy only the public Worker. |
+| `npm run deploy:models` | `wrangler deploy -c wrangler.models.jsonc --secrets-file .env` | Deploy only the private models Worker with secrets. |
+| `npm run types` | `wrangler types -c wrangler.jsonc -c wrangler.models.jsonc` | Generate Cloudflare runtime types from both Worker configs. |
 
 ## Project Structure
 
@@ -195,6 +217,7 @@ Important:
 │   └── favicon.svg
 ├── src/
 │   ├── model-service.js
+│   ├── models-worker.js
 │   ├── error.js
 │   ├── security.js
 │   ├── upstream-budget.js
@@ -204,7 +227,8 @@ Important:
 ├── README.md
 ├── SECURITY.md
 ├── package.json
-└── wrangler.jsonc
+├── wrangler.jsonc
+└── wrangler.models.jsonc
 ```
 
 ## Application Routes
@@ -213,13 +237,13 @@ Important:
 | --- | --- | --- |
 | `/` | `GET` | Main leaderboard page. |
 | `/evolution` | `GET` | Timeline chart page. |
-| `/api/models` | `GET`, `HEAD` | Normalized Artificial Analysis data. |
+| `/api/models` | `GET`, `HEAD` | Intentionally unavailable from the public Worker and returns `404`. |
 
 All other non-asset or unsupported methods return the appropriate Worker response status.
 
 ## Data Model
 
-`/api/models` returns normalized upstream data shaped for the frontend:
+The internal models Worker returns normalized upstream data shaped for the frontend and injects it into the HTML payload served by the public Worker:
 
 ```json
 {
@@ -308,7 +332,10 @@ This refactor includes:
 
 - secret-based API key handling through Wrangler and Worker bindings
 - no committed runtime secrets
-- `GET` and `HEAD` restriction on the API route
+- a private service binding between the public Worker and the internal models Worker
+- `workers_dev: false` on the internal models Worker so it is not reachable on a public `workers.dev` URL
+- `404` for the former public `/api/models` route
+- `GET` and `HEAD` restriction on the internal models endpoint
 - `405` responses for unsupported methods
 - security headers for HTML and API responses
 - CSP for HTML responses
@@ -378,8 +405,16 @@ npm run dev
 Then check:
 
 ```bash
-curl http://localhost:8787/api/models
+curl -I http://localhost:8787/
+curl -I http://localhost:8787/evolution
+curl -I http://localhost:8787/api/models
 ```
+
+Expected:
+
+- `/` => `200`
+- `/evolution` => `200`
+- `/api/models` => `404`
 
 And open:
 
@@ -400,14 +435,15 @@ Terraform configuration for WAF and rate limiting was added, but it was not appl
 
 Set local secrets in `.dev.vars` or use Wrangler secrets in a deployed environment.
 
-### `/api/models` returns `502`
+### The page renders but model data is missing
 
 Common causes:
 
-- invalid `API_KEY_AA`
+- invalid `API_KEY_AA` on the internal models Worker
 - upstream Artificial Analysis outage or rate limit
 - outbound network issue
 - the shared daily upstream refresh budget was exhausted before the next UTC reset
+- the public Worker could not reach the `MODELS_SERVICE` binding
 
 ### The timeline shows fewer models than the table
 

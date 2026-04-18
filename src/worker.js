@@ -1,55 +1,53 @@
-import { ApiError } from "./error.js";
-import { getModelsApiResponse } from "./model-service.js";
 import { applySecurityHeaders } from "./security.js";
-import { UpstreamBudgetCoordinator } from "./upstream-budget.js";
 
-function jsonError(message, status, extra = {}) {
-  return Response.json(
-    {
-      error: message,
-      ...extra,
+const MODEL_BOOTSTRAP_ID = "aa-models-payload";
+const MODELS_SERVICE_URL = "https://models.internal/models";
+
+function notFoundResponse() {
+  return new Response("Not Found", {
+    status: 404,
+    headers: {
+      "Cache-Control": "no-store",
     },
-    { status },
-  );
-}
-
-function withoutBody(response) {
-  return new Response(null, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
   });
 }
 
-async function handleModelsApi(request, env, ctx) {
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    return new Response(null, {
-      status: 405,
+function serializeBootstrapPayload(payload) {
+  return JSON.stringify(payload).replaceAll("<", "\\u003c");
+}
+
+class ModelsPayloadInjector {
+  constructor(payload) {
+    this.payload = payload;
+  }
+
+  element(element) {
+    element.append(
+      `<script id="${MODEL_BOOTSTRAP_ID}" type="application/json">${serializeBootstrapPayload(this.payload)}</script>`,
+      { html: true },
+    );
+  }
+}
+
+function isBootstrapDocument(pathname) {
+  return pathname === "/" || pathname === "/evolution";
+}
+
+async function fetchModelsPayload(env) {
+  const response = await env.MODELS_SERVICE.fetch(
+    new Request(MODELS_SERVICE_URL, {
+      method: "GET",
       headers: {
-        Allow: "GET, HEAD",
+        Accept: "application/json",
       },
-    });
+    }),
+  );
+
+  if (!response.ok) {
+    throw new Error(`Models service error ${response.status}`);
   }
 
-  try {
-    const response = await getModelsApiResponse(request, env, ctx);
-    return request.method === "HEAD" ? withoutBody(response) : response;
-  } catch (error) {
-    const errorId = crypto.randomUUID();
-    console.error("Failed to serve /api/models", {
-      errorId,
-      message: error instanceof Error ? error.message : String(error),
-    });
-
-    if (error instanceof ApiError) {
-      return jsonError(error.message, error.status, {
-        errorId,
-        ...error.extra,
-      });
-    }
-
-    return jsonError("Failed to fetch data from Artificial Analysis API", 502, { errorId });
-  }
+  return response.json();
 }
 
 async function handleAssetRequest(request, env) {
@@ -62,18 +60,32 @@ async function handleAssetRequest(request, env) {
     });
   }
 
-  return env.ASSETS.fetch(request);
+  const url = new URL(request.url);
+  const assetResponse = await env.ASSETS.fetch(request);
+
+  if (request.method === "HEAD" || !isBootstrapDocument(url.pathname)) {
+    return assetResponse;
+  }
+
+  try {
+    const payload = await fetchModelsPayload(env);
+    return new HTMLRewriter().on("head", new ModelsPayloadInjector(payload)).transform(assetResponse);
+  } catch (error) {
+    console.error("Failed to bootstrap models payload", {
+      message: error instanceof Error ? error.message : String(error),
+      pathname: url.pathname,
+    });
+    return assetResponse;
+  }
 }
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     const response = url.pathname === "/api/models"
-      ? await handleModelsApi(request, env, ctx)
+      ? notFoundResponse()
       : await handleAssetRequest(request, env);
 
     return applySecurityHeaders(response, request);
   },
 };
-
-export { UpstreamBudgetCoordinator };

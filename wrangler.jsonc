@@ -3,23 +3,27 @@
   "name": "aa-llm-benchmarking",
   "main": "src/worker.js",
   "compatibility_date": "2026-04-17",
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "UPSTREAM_BUDGET",
-        "class_name": "UpstreamBudgetCoordinator"
-      }
-    ]
-  },
+  "services": [
+    {
+      "binding": "MODELS_SERVICE",
+      "service": "aa-llm-benchmarking-models"
+    }
+  ],
   "migrations": [
     {
-      "tag": "v1",
-      "new_sqlite_classes": ["UpstreamBudgetCoordinator"]
+      "tag": "v2",
+      "deleted_classes": ["UpstreamBudgetCoordinator"]
     }
   ],
   "observability": {
     "enabled": true
   },
+  "routes": [
+    {
+      "pattern": "llm-benchmarks.diegoromero.es",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",

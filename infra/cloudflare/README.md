@@ -3,7 +3,7 @@
 This directory implements the production deployment recommendations from the project `SECURITY.md`:
 
 1. Enable Cloudflare managed WAF rules
-2. Apply rate limiting to `/api/models`
+2. Optionally apply rate limiting to `/api/models` if you expose a public data endpoint
 
 It uses Terraform and the official `cloudflare_ruleset` resources for zone-level deployment.
 
@@ -15,6 +15,11 @@ It uses Terraform and the official `cloudflare_ruleset` resources for zone-level
 - A zone-level `http_ratelimit` ruleset entrypoint
   - rate limiting for `GET` and `HEAD` requests to `/api/models`
   - JSON `429` response when the threshold is exceeded
+
+Note:
+
+- The current application architecture keeps model retrieval behind an internal Worker service binding, so `/api/models` is not exposed publicly by default.
+- The rate limiting rules in this directory are only relevant if you intentionally reintroduce a public data endpoint at that path.
 
 ## Requirements
 

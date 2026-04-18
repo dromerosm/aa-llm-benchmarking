@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "aa-llm-benchmarking-models",
+  "main": "src/models-worker.js",
+  "compatibility_date": "2026-04-17",
+  "workers_dev": false,
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "UPSTREAM_BUDGET",
+        "class_name": "UpstreamBudgetCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["UpstreamBudgetCoordinator"]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

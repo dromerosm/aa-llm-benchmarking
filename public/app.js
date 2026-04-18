@@ -11,7 +11,7 @@ const state = {
 };
 
 const SESSION_CACHE_KEY = "aa-models-payload-v1";
-const LOADING_INDICATOR_DELAY_MS = 180;
+const BOOTSTRAP_PAYLOAD_ID = "aa-models-payload";
 
 const elements = {
   pageShell: document.querySelector(".page-shell"),
@@ -140,22 +140,22 @@ function writeCachedPayload(payload) {
   } catch {}
 }
 
-function createLoadingIndicator() {
-  let timerId = null;
+function readBootstrapPayload() {
+  try {
+    const element = document.getElementById(BOOTSTRAP_PAYLOAD_ID);
+    if (!element?.textContent) {
+      return null;
+    }
 
-  return {
-    schedule() {
-      timerId = window.setTimeout(() => {
-        elements.statusValue.textContent = "Loading";
-      }, LOADING_INDICATOR_DELAY_MS);
-    },
-    clear() {
-      if (timerId !== null) {
-        window.clearTimeout(timerId);
-        timerId = null;
-      }
-    },
-  };
+    const payload = JSON.parse(element.textContent);
+    if (!payload || !Array.isArray(payload.models)) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 function rankByMetric(models, metric, direction) {
@@ -565,22 +565,6 @@ function renderTable() {
     .join("");
 }
 
-async function loadModels() {
-  const loadingIndicator = createLoadingIndicator();
-  loadingIndicator.schedule();
-
-  try {
-    const response = await fetch("/api/models");
-    if (!response.ok) {
-      throw new Error("Could not load the leaderboard");
-    }
-
-    applyPayload(await response.json());
-  } finally {
-    loadingIndicator.clear();
-  }
-}
-
 function applyPayload(payload) {
   state.models = payload.models || [];
   state.apiStatus = payload.apiStatus ?? null;
@@ -645,36 +629,25 @@ function bindEvents() {
 async function init() {
   bindEvents();
 
+  const bootstrapPayload = readBootstrapPayload();
   const cachedPayload = readCachedPayload();
+
+  if (bootstrapPayload) {
+    applyPayload(bootstrapPayload);
+    return;
+  }
+
   if (cachedPayload) {
     applyPayload(cachedPayload);
+    return;
   }
 
-  try {
-    if (!cachedPayload) {
-      await loadModels();
-      return;
-    }
-
-    const response = await fetch("/api/models");
-    if (!response.ok) {
-      throw new Error("Could not load the leaderboard");
-    }
-
-    applyPayload(await response.json());
-  } catch (error) {
-    if (!cachedPayload) {
-      elements.statusValue.textContent = "Error";
-      elements.tableCaption.textContent = "Failed to load models";
-      elements.tableHead.innerHTML = "";
-      elements.tableBody.innerHTML =
-        '<tr><td colspan="1">Could not load data from the API.</td></tr>';
-      console.error(error);
-      return;
-    }
-
-    console.warn("Background refresh failed", error);
-  }
+  elements.statusValue.textContent = "Error";
+  elements.tableCaption.textContent = "Failed to load models";
+  elements.tableHead.innerHTML = "";
+  elements.tableBody.innerHTML =
+    '<tr><td colspan="1">Could not load data for the leaderboard.</td></tr>';
+  console.error("Missing bootstrapped models payload");
 }
 
 init();

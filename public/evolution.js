@@ -12,7 +12,7 @@ const state = {
 };
 
 const SESSION_CACHE_KEY = "aa-models-payload-v1";
-const LOADING_INDICATOR_DELAY_MS = 180;
+const BOOTSTRAP_PAYLOAD_ID = "aa-models-payload";
 
 const elements = {
   heroMeta: document.querySelector("#timeline-hero-meta"),
@@ -159,22 +159,22 @@ function writeCachedPayload(payload) {
   } catch {}
 }
 
-function createLoadingIndicator() {
-  let timerId = null;
+function readBootstrapPayload() {
+  try {
+    const element = document.getElementById(BOOTSTRAP_PAYLOAD_ID);
+    if (!element?.textContent) {
+      return null;
+    }
 
-  return {
-    schedule() {
-      timerId = window.setTimeout(() => {
-        elements.statusValue.textContent = "Loading";
-      }, LOADING_INDICATOR_DELAY_MS);
-    },
-    clear() {
-      if (timerId !== null) {
-        window.clearTimeout(timerId);
-        timerId = null;
-      }
-    },
-  };
+    const payload = JSON.parse(element.textContent);
+    if (!payload || !Array.isArray(payload.models)) {
+      return null;
+    }
+
+    return payload;
+  } catch {
+    return null;
+  }
 }
 
 function formatTooltipMetric(value, formatter, suffix = "") {
@@ -1337,22 +1337,6 @@ function applyFilters() {
   renderSummary();
 }
 
-async function loadModels() {
-  const loadingIndicator = createLoadingIndicator();
-  loadingIndicator.schedule();
-
-  try {
-    const response = await fetch("/api/models");
-    if (!response.ok) {
-      throw new Error("Could not load timeline data");
-    }
-
-    applyPayload(await response.json());
-  } finally {
-    loadingIndicator.clear();
-  }
-}
-
 function applyPayload(payload) {
   state.models = payload.models || [];
   state.refreshedAt = payload.refreshedAt;
@@ -1481,39 +1465,28 @@ function bindEvents() {
 async function init() {
   bindEvents();
 
+  const bootstrapPayload = readBootstrapPayload();
   const cachedPayload = readCachedPayload();
+
+  if (bootstrapPayload) {
+    applyPayload(bootstrapPayload);
+    return;
+  }
+
   if (cachedPayload) {
     applyPayload(cachedPayload);
+    return;
   }
 
-  try {
-    if (!cachedPayload) {
-      await loadModels();
-      return;
-    }
-
-    const response = await fetch("/api/models");
-    if (!response.ok) {
-      throw new Error("Could not load timeline data");
-    }
-
-    applyPayload(await response.json());
-  } catch (error) {
-    if (!cachedPayload) {
-      console.error(error);
-      elements.statusValue.textContent = "Error";
-      elements.caption.textContent = "Could not load timeline data";
-      elements.chart.innerHTML = `
-        <rect x="0" y="0" width="${chartConfig.width}" height="${chartConfig.height}" rx="28" fill="rgba(255,255,255,0.72)"></rect>
-        <text x="${chartConfig.width / 2}" y="${chartConfig.height / 2}" text-anchor="middle" class="timeline-empty">
-          Could not load data from the API.
-        </text>
-      `;
-      return;
-    }
-
-    console.warn("Background refresh failed", error);
-  }
+  elements.statusValue.textContent = "Error";
+  elements.caption.textContent = "Could not load timeline data";
+  elements.chart.innerHTML = `
+    <rect x="0" y="0" width="${chartConfig.width}" height="${chartConfig.height}" rx="28" fill="rgba(255,255,255,0.72)"></rect>
+    <text x="${chartConfig.width / 2}" y="${chartConfig.height / 2}" text-anchor="middle" class="timeline-empty">
+      Could not load timeline data.
+    </text>
+  `;
+  console.error("Missing bootstrapped models payload");
 }
 
 init();

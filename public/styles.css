@@ -227,12 +227,8 @@ body {
   background: var(--surface);
 }
 
-.hero:not(.timeline-hero) {
+.hero {
   min-height: 560px;
-}
-
-.timeline-hero {
-  min-height: 380px;
 }
 
 .eyebrow {
@@ -529,6 +525,12 @@ td small {
     minmax(280px, 1.2fr)
     auto
     auto;
+}
+
+@media (max-width: 1320px) {
+  .timeline-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .control {

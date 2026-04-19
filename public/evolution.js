@@ -31,6 +31,7 @@ const elements = {
   searchInput: document.querySelector("#timeline-search-input"),
   pricedOnly: document.querySelector("#timeline-priced-only"),
   showAllLabels: document.querySelector("#timeline-show-all-labels"),
+  downloadPngButton: document.querySelector("#timeline-download-png"),
   caption: document.querySelector("#timeline-caption"),
   chartWrap: document.querySelector(".timeline-chart-wrap"),
   chart: document.querySelector("#timeline-chart"),
@@ -56,6 +57,7 @@ const DEFAULT_TIME_RANGE_MODE = "max";
 const MIN_X_ZOOM_SPAN_MS = 1000 * 60 * 60 * 24 * 45;
 const MIN_Y_ZOOM_SPAN = 6;
 const PAN_DRAG_THRESHOLD_PX = 6;
+const PNG_EXPORT_SCALE = 2;
 const TIME_RANGE_PRESETS = Object.freeze({
   "7d": {
     label: "7 days",
@@ -1320,6 +1322,131 @@ function renderTimeline() {
     : `${chartState.visibleCount} visible points${isZoomed ? " in zoom" : ""} · ${chartState.labelledCount} labels shown · ${timeRangeLabel}`;
 }
 
+function buildTimelineExportStyles() {
+  const sampleGridLine = elements.chart.querySelector(".timeline-grid line");
+  const sampleAxisLine = elements.chart.querySelector(".timeline-axis line");
+  const sampleAxisText = elements.chart.querySelector(".timeline-axis text");
+  const sampleLabel = elements.chart.querySelector(".timeline-label");
+  const chartStyles = getComputedStyle(elements.chart);
+  const gridLineStyles = sampleGridLine ? getComputedStyle(sampleGridLine) : null;
+  const axisLineStyles = sampleAxisLine ? getComputedStyle(sampleAxisLine) : null;
+  const axisTextStyles = sampleAxisText ? getComputedStyle(sampleAxisText) : chartStyles;
+  const labelStyles = sampleLabel ? getComputedStyle(sampleLabel) : axisTextStyles;
+
+  return `
+    .timeline-grid line {
+      stroke: ${gridLineStyles?.stroke || "rgba(128, 128, 128, 0.18)"};
+      stroke-dasharray: 4 8;
+    }
+    .timeline-grid text,
+    .timeline-axis text {
+      fill: ${axisTextStyles.fill || "rgb(102, 102, 102)"};
+      font-size: ${axisTextStyles.fontSize || "18px"};
+      font-family: ${axisTextStyles.fontFamily || "ui-sans-serif, system-ui, sans-serif"};
+    }
+    .timeline-axis line {
+      stroke: ${axisLineStyles?.stroke || "rgba(128, 128, 128, 0.3)"};
+      stroke-width: ${axisLineStyles?.strokeWidth || "1.5px"};
+    }
+    .timeline-label {
+      fill: ${labelStyles.fill || "rgb(102, 102, 102)"};
+      font-size: ${labelStyles.fontSize || "13px"};
+      font-family: ${labelStyles.fontFamily || "ui-sans-serif, system-ui, sans-serif"};
+      font-weight: ${labelStyles.fontWeight || "600"};
+    }
+  `;
+}
+
+function buildTimelineExportSvgMarkup() {
+  const clone = elements.chart.cloneNode(true);
+  const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
+
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  clone.setAttribute("width", String(chartConfig.width));
+  clone.setAttribute("height", String(chartConfig.height));
+
+  style.textContent = buildTimelineExportStyles();
+  clone.insertBefore(style, clone.firstChild);
+
+  return new XMLSerializer().serializeToString(clone);
+}
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Could not render the timeline SVG as an image."));
+    image.src = url;
+  });
+}
+
+function canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob);
+        return;
+      }
+
+      reject(new Error("Could not convert the exported timeline to PNG."));
+    }, "image/png");
+  });
+}
+
+async function downloadTimelineAsPng() {
+  if (!elements.downloadPngButton) {
+    return;
+  }
+
+  const button = elements.downloadPngButton;
+  const previousLabel = button.getAttribute("aria-label");
+  const previousTitle = button.title;
+
+  button.disabled = true;
+  button.setAttribute("aria-label", "Preparing timeline PNG");
+  button.title = "Preparing timeline PNG";
+
+  try {
+    const svgMarkup = buildTimelineExportSvgMarkup();
+    const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgMarkup)}`;
+
+    const image = await loadImage(svgUrl);
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      throw new Error("Canvas 2D context is not available.");
+    }
+
+    canvas.width = chartConfig.width * PNG_EXPORT_SCALE;
+    canvas.height = chartConfig.height * PNG_EXPORT_SCALE;
+    context.scale(PNG_EXPORT_SCALE, PNG_EXPORT_SCALE);
+    context.drawImage(image, 0, 0, chartConfig.width, chartConfig.height);
+
+    const pngBlob = await canvasToBlob(canvas);
+    const pngUrl = URL.createObjectURL(pngBlob);
+
+    try {
+      const downloadLink = document.createElement("a");
+      downloadLink.href = pngUrl;
+      downloadLink.download = `artificial-analysis-intelligence-timeline-${new Date().toISOString().slice(0, 10)}.png`;
+      document.body.append(downloadLink);
+      downloadLink.click();
+      downloadLink.remove();
+    } finally {
+      setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
+    }
+  } catch (error) {
+    console.error("Could not export timeline PNG", error);
+    window.alert("Could not export the timeline as PNG.");
+  } finally {
+    button.disabled = false;
+    button.setAttribute("aria-label", previousLabel || "Download timeline as PNG");
+    button.title = previousTitle || "Download timeline as PNG";
+  }
+}
+
 function zoomChartAtPointer(event) {
   if (!state.chartView) {
     return;
@@ -1605,6 +1732,7 @@ function bindEvents() {
   elements.chartWrap.addEventListener("pointercancel", endChartPan);
   elements.chartWrap.addEventListener("wheel", zoomChartAtPointer, { passive: false });
   elements.chartWrap.addEventListener("dblclick", resetChartZoom);
+  elements.downloadPngButton?.addEventListener("click", downloadTimelineAsPng);
   elements.minIntelligenceInput.addEventListener("input", applyFilters);
   elements.searchInput.addEventListener("input", applyFilters);
   elements.pricedOnly.addEventListener("change", applyFilters);

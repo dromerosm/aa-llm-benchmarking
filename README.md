@@ -409,6 +409,7 @@ The timeline view includes:
 - search and minimum intelligence filters
 - priced-only toggle
 - interactive labels and tooltip
+- PNG export of the current chart view
 - SVG chart rendering without external charting libraries
 
 ### Speech, Image & Video

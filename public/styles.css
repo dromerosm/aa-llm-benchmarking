@@ -792,6 +792,12 @@ td small {
   font-size: 0.95rem;
 }
 
+.timeline-meta-right {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
 .table-meta-right p {
   margin: 0;
   min-height: 1.25rem;
@@ -813,6 +819,46 @@ td small {
   border: 1px solid rgba(128, 128, 128, 0.18);
   color: var(--muted);
   font-size: 0.84rem;
+}
+
+.timeline-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(128, 128, 128, 0.18);
+  background: var(--surface-strong);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.timeline-icon-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.timeline-icon-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}
+
+.timeline-icon-button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+  transform: none;
+}
+
+.timeline-icon-button svg {
+  display: block;
 }
 
 .table-wrap {
@@ -1233,6 +1279,10 @@ tbody tr:hover {
 
   .table-meta-right {
     text-align: left;
+  }
+
+  .timeline-meta-right {
+    justify-items: start;
   }
 
   .table-pill-row {

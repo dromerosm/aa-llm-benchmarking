@@ -8,7 +8,7 @@ The project serves a static frontend from Cloudflare Assets and keeps model retr
 
 - `Leaderboard` view with filtering, sorting, pagination, and expandable metrics
 - `Intelligence Timeline` view with an SVG scatter plot by release date and intelligence
-- `Speech, Image & Video` view aggregating the remaining Artificial Analysis free API media endpoints
+- `Speech, Image & Video` view aggregating the remaining Artificial Analysis free API media endpoints with direct links to the original Artificial Analysis model pages
 - Cloudflare Worker runtime entrypoint for public asset handling
 - Internal models Worker reachable only through a service binding
 - Wrangler configuration for local development and deployment
@@ -416,6 +416,7 @@ The timeline view includes:
 The media view includes:
 
 - one aggregated table across text-to-image, image-editing, text-to-speech, text-to-video, and image-to-video
+- model-name links to the original Artificial Analysis model page when the upstream entry exposes a slug
 - endpoint and creator filters
 - category-breakdown toggle
 - sortable ELO, appearances, release date, and rank columns

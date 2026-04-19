@@ -118,6 +118,27 @@ function formatUpdatedLabel(dateString) {
   }).format(new Date(dateString))}`;
 }
 
+function getDetailsUrl(entry) {
+  if (!entry?.slug) {
+    return null;
+  }
+
+  const sectionByEndpoint = {
+    "text-to-image": "image",
+    "image-editing": "image",
+    "text-to-speech": "text-to-speech",
+    "text-to-video": "video",
+    "image-to-video": "video",
+  };
+
+  const section = sectionByEndpoint[entry.endpointId];
+  if (!section) {
+    return null;
+  }
+
+  return `https://artificialanalysis.ai/${section}/models/${encodeURIComponent(entry.slug)}`;
+}
+
 function readCachedPayload() {
   try {
     const raw = sessionStorage.getItem(SESSION_CACHE_KEY);
@@ -371,7 +392,19 @@ function getColumns() {
     {
       key: "name",
       label: "Model",
-      render: (entry) => `<span class="model-name">${escapeHtml(entry.name)}</span>`,
+      render: (entry) => {
+        const detailsUrl = getDetailsUrl(entry);
+
+        if (!detailsUrl) {
+          return `<span class="model-name">${escapeHtml(entry.name)}</span>`;
+        }
+
+        return `
+          <a class="model-name" href="${escapeHtml(detailsUrl)}" target="_blank" rel="noopener noreferrer">
+            ${escapeHtml(entry.name)}
+          </a>
+        `;
+      },
     },
     {
       key: "endpointLabel",

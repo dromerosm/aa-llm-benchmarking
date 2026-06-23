@@ -1,4 +1,15 @@
-# Security Analysis
+# Security Policy
+
+## Reporting a Vulnerability
+
+Please do **not** open a public GitHub issue for security problems.
+
+Report vulnerabilities privately through GitHub's
+[Report a vulnerability](https://github.com/dromerosm/aa-llm-benchmarking/security/advisories/new)
+flow (Security → Advisories). Include steps to reproduce and the affected route
+or component. You can expect an initial acknowledgement within a few days.
+
+## Security Analysis
 
 This document summarizes the current security posture of the project after the Cloudflare refactor.
 
@@ -158,8 +169,8 @@ For a production Cloudflare deployment, enable or review:
 
 Items 1 and 2 are now implemented as Terraform infrastructure in:
 
-- [infra/cloudflare/main.tf](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/infra/cloudflare/main.tf)
-- [infra/cloudflare/README.md](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/infra/cloudflare/README.md)
+- [infra/cloudflare/main.tf](infra/cloudflare/main.tf)
+- [infra/cloudflare/README.md](infra/cloudflare/README.md)
 
 Current implementation:
 

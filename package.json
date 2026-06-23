@@ -1,8 +1,16 @@
 {
   "name": "aa-llm-benchmarking",
   "version": "1.0.0",
-  "description": "Cloudflare Worker app powered by the Artificial Analysis API",
+  "description": "Cloudflare Worker app that visualizes LLM, speech, image, and video benchmark data from the Artificial Analysis API",
   "private": true,
+  "homepage": "https://llm-benchmarks.diegoromero.es",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dromerosm/aa-llm-benchmarking.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dromerosm/aa-llm-benchmarking/issues"
+  },
   "scripts": {
     "prepare": "node ./scripts/install-git-hooks.mjs",
     "dev": "wrangler dev -c wrangler.dev.jsonc -c wrangler.models.jsonc",
@@ -14,9 +22,18 @@
     "deploy:models": "wrangler deploy -c wrangler.models.jsonc --secrets-file .env",
     "types": "wrangler types -c wrangler.jsonc -c wrangler.models.jsonc"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "cloudflare",
+    "cloudflare-workers",
+    "wrangler",
+    "durable-objects",
+    "llm",
+    "benchmarks",
+    "leaderboard",
+    "artificial-analysis"
+  ],
+  "author": "Diego Romero",
+  "license": "MIT",
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "lighthouse": "^12.8.2",

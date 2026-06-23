@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Validate Workers build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate internal models Worker (dry-run)
+        run: npx wrangler deploy --dry-run -c wrangler.models.jsonc
+
+      - name: Validate public Worker (dry-run)
+        run: npx wrangler deploy --dry-run -c wrangler.jsonc

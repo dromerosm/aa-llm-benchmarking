@@ -1,6 +1,14 @@
 # AA LLM Benchmarking
 
-A Cloudflare Worker application that visualizes LLM plus speech, image, and video benchmark data from the Artificial Analysis API.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/workers/)
+[![Built with Wrangler](https://img.shields.io/badge/built%20with-Wrangler-F38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/workers/wrangler/)
+[![CI](https://github.com/dromerosm/aa-llm-benchmarking/actions/workflows/ci.yml/badge.svg)](https://github.com/dromerosm/aa-llm-benchmarking/actions/workflows/ci.yml)
+[![Live site](https://img.shields.io/badge/live-llm--benchmarks.diegoromero.es-2ea44f)](https://llm-benchmarks.diegoromero.es)
+
+A Cloudflare Worker application that visualizes LLM plus speech, image, and video benchmark data from the [Artificial Analysis](https://artificialanalysis.ai/) API.
+
+**Live:** https://llm-benchmarks.diegoromero.es
 
 The project serves a static frontend from Cloudflare Assets and keeps model retrieval behind an internal Worker-to-Worker service binding. The browser does not call the upstream-backed data service directly.
 
@@ -32,14 +40,14 @@ This project is designed for Cloudflare Workers with static assets and a private
 
 Key runtime files:
 
-- [src/worker.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/worker.js)
-- [src/models-worker.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/models-worker.js)
-- [src/model-service.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/model-service.js)
-- [src/media-service.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/media-service.js)
-- [src/security.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/security.js)
-- [src/upstream-budget.js](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/src/upstream-budget.js)
-- [wrangler.jsonc](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/wrangler.jsonc)
-- [wrangler.models.jsonc](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/wrangler.models.jsonc)
+- [src/worker.js](src/worker.js)
+- [src/models-worker.js](src/models-worker.js)
+- [src/model-service.js](src/model-service.js)
+- [src/media-service.js](src/media-service.js)
+- [src/security.js](src/security.js)
+- [src/upstream-budget.js](src/upstream-budget.js)
+- [wrangler.jsonc](wrangler.jsonc)
+- [wrangler.models.jsonc](wrangler.models.jsonc)
 
 ## Requirements
 
@@ -60,23 +68,7 @@ Wrangler is installed as a project dev dependency and is used for local developm
 
 ## Local Development
 
-Cloudflare recommends storing local Worker secrets in `.dev.vars` or `.env`. This project is configured to require `API_KEY_AA`.
-
-Create a local secrets file:
-
-```bash
-cp .dev.vars.example .dev.vars
-```
-
-Then update `.dev.vars`:
-
-```env
-API_KEY_AA="your_artificial_analysis_api_key"
-```
-
-### Run Locally
-
-From the project root:
+Cloudflare recommends storing local Worker secrets in `.dev.vars` or `.env`. This project requires `API_KEY_AA`.
 
 1. Install dependencies:
 
@@ -84,31 +76,29 @@ From the project root:
 npm ci
 ```
 
-2. Create local secrets:
+2. Create your local secrets file and add your Artificial Analysis API key:
 
 ```bash
 cp .dev.vars.example .dev.vars
 ```
 
-3. Set your Artificial Analysis API key in `.dev.vars`:
-
 ```env
 API_KEY_AA="your_artificial_analysis_api_key"
 ```
 
-4. Start the local Cloudflare Worker runtime:
+3. Start the local Cloudflare Worker runtime:
 
 ```bash
 npm run dev
 ```
 
-5. Open the application:
+Wrangler serves static assets from `public/`, runs the public Worker from `src/worker.js`, and connects it to `src/models-worker.js` through a local service binding on:
 
 - `http://localhost:8787/`
 - `http://localhost:8787/evolution`
 - `http://localhost:8787/speech-image-video`
 
-6. Verify the public routes:
+4. Verify the public routes:
 
 ```bash
 curl -I http://localhost:8787/
@@ -117,26 +107,12 @@ curl -I http://localhost:8787/speech-image-video
 curl -I http://localhost:8787/api/models
 ```
 
-Expected local behavior:
+Expected:
 
 - `/` returns `200`
 - `/evolution` returns `200`
 - `/speech-image-video` returns `200`
-- `/api/models` returns `404`
-
-Wrangler will automatically serve static assets from `public/`, run the public Worker from `src/worker.js`, and connect it to `src/models-worker.js` through a local service binding.
-
-Start the Worker locally:
-
-```bash
-npm run dev
-```
-
-Wrangler serves the app locally on:
-
-- `http://localhost:8787/`
-- `http://localhost:8787/evolution`
-- `http://localhost:8787/speech-image-video`
+- `/api/models` returns `404` (intentionally not exposed publicly)
 
 ## Deploying to Cloudflare
 
@@ -175,15 +151,15 @@ Production URLs:
 
 ## Cloudflare Security Deployment
 
-The production recommendations from [SECURITY.md](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/SECURITY.md) for:
+The production recommendations from [SECURITY.md](SECURITY.md) for:
 
 1. WAF managed rules
 2. Rate limiting for a public data endpoint if you reintroduce one
 
 are implemented as Terraform infrastructure in:
 
-- [infra/cloudflare/README.md](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/infra/cloudflare/README.md)
-- [infra/cloudflare/main.tf](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/infra/cloudflare/main.tf)
+- [infra/cloudflare/README.md](infra/cloudflare/README.md)
+- [infra/cloudflare/main.tf](infra/cloudflare/main.tf)
 
 This adds:
 
@@ -223,7 +199,8 @@ Important:
 
 ```text
 .
-├── public/
+├── .github/              # CI workflow, issue/PR templates, Dependabot
+├── public/               # Static frontend served from Cloudflare Assets
 │   ├── index.html
 │   ├── evolution.html
 │   ├── speech-image-video.html
@@ -231,22 +208,27 @@ Important:
 │   ├── evolution.js
 │   ├── speech-image-video.js
 │   ├── styles.css
-│   └── favicon.svg
-├── src/
+│   └── favicon.ico
+├── src/                  # Worker runtime code
 │   ├── model-service.js
 │   ├── media-service.js
-│   ├── models-worker.js
+│   ├── models-worker.js  # Internal models Worker
 │   ├── error.js
 │   ├── security.js
 │   ├── upstream-budget.js
-│   └── worker.js
+│   └── worker.js         # Public Worker entrypoint
+├── infra/cloudflare/     # Terraform for WAF and rate limiting
+├── scripts/              # Git hooks installer, Lighthouse check
 ├── .dev.vars.example
 ├── AGENTS.md
+├── CONTRIBUTING.md
+├── LICENSE
 ├── README.md
 ├── SECURITY.md
 ├── package.json
-├── wrangler.jsonc
-└── wrangler.models.jsonc
+├── wrangler.jsonc        # Public Worker config
+├── wrangler.dev.jsonc    # Local dev overrides
+└── wrangler.models.jsonc # Internal models Worker config
 ```
 
 ## Application Routes
@@ -330,7 +312,7 @@ Current behavior:
 - edge cache is used when memory cache is cold
 - upstream is fetched on cache miss or expiry
 - all upstream refresh attempts are coordinated through a Durable Object
-- upstream refreshes are capped at `750` requests per UTC day across all colos
+- upstream refreshes are capped at `1,000` requests per UTC day across all colos
 - stale edge cache is used as fallback if the upstream request fails
 - stale memory cache is used as a final local fallback when available
 
@@ -362,7 +344,7 @@ This refactor includes:
 - sanitized upstream values before HTML injection paths
 - generic upstream failure responses with generated error IDs instead of leaking raw upstream response bodies
 
-See [SECURITY.md](/Users/diego/GitHub/cloudflare/aa-llm-benchmarking/SECURITY.md) for the full security analysis.
+See [SECURITY.md](SECURITY.md) for the full security analysis.
 
 ## Security Headers
 
@@ -488,6 +470,12 @@ This is expected. The timeline only plots models with both:
 - `releaseDate`
 - `intelligence`
 
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
+workflow and [AGENTS.md](AGENTS.md) for repository conventions. For security
+issues, follow the private reporting process in [SECURITY.md](SECURITY.md).
+
 ## Attribution
 
 This project depends on Artificial Analysis data and methodology.
@@ -499,6 +487,11 @@ References:
 - https://artificialanalysis.ai/methodology
 - https://artificialanalysis.ai/api-reference
 
+The Artificial Analysis name and logo are trademarks of Artificial Analysis and
+are used here only for attribution. This repository does not redistribute the
+official brand kit. To obtain the official logos and brand assets, see the
+[Artificial Analysis website](https://artificialanalysis.ai/).
+
 ## License
 
-The current `package.json` declares the license as `ISC`.
+This project is licensed under the [MIT License](LICENSE).

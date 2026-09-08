@@ -37,6 +37,6 @@
   "devDependencies": {
     "@playwright/test": "^1.59.1",
     "lighthouse": "^12.8.2",
-    "wrangler": "^4.83.0"
+    "wrangler": "^4.129.0"
   }
 }

@@ -450,11 +450,7 @@ And open:
 - `http://localhost:8787/evolution`
 - `http://localhost:8787/speech-image-video`
 
-If Playwright browser binaries are missing:
-
-```bash
-npx playwright install chromium
-```
+`npm run lighthouse` launches the system Google Chrome (or Chromium) through `chrome-launcher`, so Chrome must be installed.
 
 Terraform configuration for WAF and rate limiting was added, but it was not applied from this environment because that requires your Cloudflare zone credentials and state ownership decisions for rulesets.
 

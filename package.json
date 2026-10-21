@@ -34,7 +34,7 @@
   "author": "Diego Romero",
   "license": "MIT",
   "devDependencies": {
-    "@playwright/test": "^1.59.1",
+    "chrome-launcher": "^1.2.2",
     "lighthouse": "^12.8.2",
     "wrangler": "^4.83.0"
   }

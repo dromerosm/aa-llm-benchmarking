@@ -1,10 +1,9 @@
 import { spawn } from "node:child_process";
-import net from "node:net";
 import process from "node:process";
 import { setTimeout as delay } from "node:timers/promises";
 
+import * as chromeLauncher from "chrome-launcher";
 import lighthouse from "lighthouse";
-import { chromium } from "playwright";
 
 const PORT = Number(process.env.LIGHTHOUSE_PORT || "8787");
 const HOST = process.env.LIGHTHOUSE_HOST || "127.0.0.1";
@@ -112,38 +111,12 @@ async function verifyRoutesReachable() {
   }
 }
 
-async function getAvailablePort() {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-
-    server.unref();
-    server.on("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        server.close(() => reject(new Error("Could not resolve an available local port")));
-        return;
-      }
-
-      const { port } = address;
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve(port);
-      });
-    });
-  });
-}
-
 async function startChrome() {
-  chromeDebugPort = Number(process.env.LIGHTHOUSE_CHROME_PORT || (await getAvailablePort()));
-  chromeProcess = await chromium.launch({
-    headless: true,
-    args: [`--remote-debugging-port=${chromeDebugPort}`],
+  chromeProcess = await chromeLauncher.launch({
+    port: Number(process.env.LIGHTHOUSE_CHROME_PORT || 0),
+    chromeFlags: ["--headless=new"],
   });
+  chromeDebugPort = chromeProcess.port;
 }
 
 function formatScore(score) {
@@ -197,7 +170,7 @@ async function cleanup(exitCode) {
   cleaningUp = true;
 
   if (chromeProcess) {
-    await chromeProcess.close().catch(() => {});
+    await chromeProcess.kill();
     chromeProcess = null;
   }
 

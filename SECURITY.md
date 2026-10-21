@@ -99,13 +99,50 @@ Result:
 - lower upstream request volume
 - more resilient read behavior under transient upstream failures
 
+### Content Security Policy
+
+HTML responses get this policy (`src/security.js`), with a fresh nonce per request that the Worker adds to every `<script>` element:
+
+- `default-src 'self'`
+- `base-uri 'self'`
+- `connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com`
+- `font-src 'self'`
+- `form-action 'self'`
+- `frame-ancestors 'none'`
+- `img-src 'self' data: https://*.google-analytics.com https://www.googletagmanager.com`
+- `object-src 'none'`
+- `script-src 'self' 'nonce-<per-request>' https://static.cloudflareinsights.com https://www.googletagmanager.com`
+- `style-src 'self' 'unsafe-inline'`
+- `upgrade-insecure-requests` on HTTPS requests
+
 ## Current Security Tradeoffs
+
+### Third-Party Analytics
+
+Every HTML page loads Google Analytics 4 (`G-B8118TCBQY`). The `gtag.js` loader comes from `www.googletagmanager.com`, and the configuration lives in the same-origin `public/analytics.js`, so no inline script is needed.
+
+The CSP allows only what GA4 needs:
+
+- `script-src`: `https://www.googletagmanager.com`
+- `connect-src`: `https://*.google-analytics.com`, `https://*.analytics.google.com`, `https://www.googletagmanager.com`
+- `img-src`: `https://*.google-analytics.com`, `https://www.googletagmanager.com`
+
+GA4 runs with `anonymize_ip`, Google signals off, and ad personalization signals off.
+
+Impact:
+
+- a third party can run script on the page, so a compromise of the Google Tag Manager origin would affect this site
+- visitor page views and basic device data are sent to Google
+
+Recommended future improvement:
+
+- drop GA4, or switch to a cookieless first-party measurement option, if stricter isolation is required
 
 ### CSP Allows Inline Styles
 
 The current `Content-Security-Policy` uses:
 
-- `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`
+- `style-src 'self' 'unsafe-inline'`
 
 Reason:
 

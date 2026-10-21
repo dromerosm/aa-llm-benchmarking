@@ -2,13 +2,13 @@ function buildHtmlCsp({ isHttpsRequest, nonce }) {
   const directives = [
     "default-src 'self'",
     "base-uri 'self'",
-    "connect-src 'self'",
+    "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com",
     "font-src 'self'",
     "form-action 'self'",
     "frame-ancestors 'none'",
-    "img-src 'self' data:",
+    "img-src 'self' data: https://*.google-analytics.com https://www.googletagmanager.com",
     "object-src 'none'",
-    `script-src 'self' 'nonce-${nonce}' https://static.cloudflareinsights.com`,
+    `script-src 'self' 'nonce-${nonce}' https://static.cloudflareinsights.com https://www.googletagmanager.com`,
     "style-src 'self' 'unsafe-inline'",
   ];
 

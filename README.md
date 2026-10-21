@@ -25,6 +25,8 @@ The project serves a static frontend from Cloudflare Assets and keeps model retr
 - Durable Object pacing to keep at least 3 seconds between upstream API requests
 - Security hardening through response headers, secret handling, and method restrictions
 - CSP headers that stay compatible with Cloudflare challenge and analytics script injection
+- Google Analytics 4 measurement (`G-B8118TCBQY`) on every HTML page, loaded from `public/analytics.js`
+- `robots.txt` and `sitemap.xml` served from `public/`
 
 ## Cloudflare Architecture
 
@@ -207,7 +209,11 @@ Important:
 │   ├── app.js
 │   ├── evolution.js
 │   ├── speech-image-video.js
+│   ├── analytics.js      # Google Analytics 4 configuration
+│   ├── theme.js
 │   ├── styles.css
+│   ├── robots.txt
+│   ├── sitemap.xml
 │   └── favicon.ico
 ├── src/                  # Worker runtime code
 │   ├── model-service.js
@@ -368,6 +374,14 @@ Reason:
 - the current UI uses runtime style updates for tooltip positioning and interaction states
 
 If you want a stricter CSP later, the next step is to refactor those DOM style writes away from inline style updates.
+
+## Analytics
+
+Every HTML page loads Google Analytics 4 (measurement ID `G-B8118TCBQY`, the shared diegoromero.es property). The page includes the async `gtag.js` loader from `www.googletagmanager.com` and the same-origin `public/analytics.js`, which configures GA4 with IP anonymization, Google signals off, and ad personalization signals off.
+
+To exclude your own visits, open any page once with `?internal=1`. The flag is stored in `localStorage` and those hits are tagged `traffic_type: internal`, which the GA4 "Internal Traffic" data filter drops. Open a page with `?internal=0` to clear it.
+
+The CSP allows only the Google hosts GA4 needs; see [SECURITY.md](SECURITY.md#third-party-analytics).
 
 ## Frontend Features
 

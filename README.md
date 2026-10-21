@@ -66,8 +66,6 @@ npm ci
 
 Wrangler is installed as a project dev dependency and is used for local development and deployment.
 
-`npm install` also configures the repository to use the versioned Git hooks in `.githooks/`.
-
 ## Local Development
 
 Cloudflare recommends storing local Worker secrets in `.dev.vars` or `.env`. This project requires `API_KEY_AA`.
@@ -188,7 +186,6 @@ Important:
 
 | Script | Command | Purpose |
 | --- | --- | --- |
-| `npm run prepare` | `node ./scripts/install-git-hooks.mjs` | Configure Git to use the repository's versioned hooks in `.githooks`. |
 | `npm run dev` | `wrangler dev -c wrangler.jsonc -c wrangler.models.jsonc` | Run the public Worker and the private models Worker together in local development. |
 | `npm start` | `wrangler dev -c wrangler.jsonc -c wrangler.models.jsonc` | Alias for local development. |
 | `npm run lighthouse` | `node ./scripts/run-lighthouse-check.mjs` | Run Lighthouse against `/` and `/evolution`, starting `wrangler dev` automatically if needed. |
@@ -224,7 +221,7 @@ Important:
 │   ├── upstream-budget.js
 │   └── worker.js         # Public Worker entrypoint
 ├── infra/cloudflare/     # Terraform for WAF and rate limiting
-├── scripts/              # Git hooks installer, Lighthouse check
+├── scripts/              # Lighthouse check
 ├── .dev.vars.example
 ├── AGENTS.md
 ├── CONTRIBUTING.md

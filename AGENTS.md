@@ -48,8 +48,7 @@ Repository instructions for humans and coding agents working on this project.
 ## Lighthouse Process
 
 - Google Lighthouse is part of the contributor and agent workflow, not product documentation.
-- Run `npm run lighthouse` before `git commit`, before `git push`, and before `npm run deploy`.
-- The repository enforces this through `.githooks/pre-commit`, `.githooks/pre-push`, and the `predeploy` script.
+- Run `npm run lighthouse` before `npm run deploy`. There are no Git hooks; the `predeploy` script enforces it on deploy.
 - The default audit targets are `http://127.0.0.1:8787/` and `http://127.0.0.1:8787/evolution`.
 - If nothing is running on port `8787`, the audit script starts `npm run dev` automatically and stops it after the audit completes.
 - Current minimum thresholds are `performance >= 75`, `accessibility >= 90`, `best-practices >= 90`, and `seo >= 90`.

@@ -12,7 +12,6 @@
     "url": "https://github.com/dromerosm/aa-llm-benchmarking/issues"
   },
   "scripts": {
-    "prepare": "node ./scripts/install-git-hooks.mjs",
     "dev": "wrangler dev -c wrangler.dev.jsonc -c wrangler.models.jsonc",
     "start": "wrangler dev -c wrangler.dev.jsonc -c wrangler.models.jsonc",
     "lighthouse": "node ./scripts/run-lighthouse-check.mjs",

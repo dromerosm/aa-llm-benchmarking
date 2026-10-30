@@ -9,12 +9,6 @@
       "service": "aa-llm-benchmarking-models"
     }
   ],
-  "migrations": [
-    {
-      "tag": "v2",
-      "deleted_classes": ["UpstreamBudgetCoordinator"]
-    }
-  ],
   "observability": {
     "enabled": true
   },

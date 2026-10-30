@@ -36,6 +36,6 @@
   "devDependencies": {
     "chrome-launcher": "^1.2.2",
     "lighthouse": "^12.8.2",
-    "wrangler": "^4.83.0"
+    "wrangler": "^4.156.0"
   }
 }

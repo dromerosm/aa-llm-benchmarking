@@ -99,9 +99,8 @@
             This view aggregates the remaining public Artificial Analysis endpoints:
             text to image, image editing, text to speech, text to video, and image
             to video. It keeps the full response coverage from those endpoint
-            families in one table so you can filter by modality, creator, release
-            timing, and category coverage without switching between separate
-            leaderboards.
+            families in one table so you can filter by modality and creator
+            without switching between separate leaderboards.
           </p>
           <div class="hero-attribution">
             <p class="hero-attribution-title">Methodology description</p>
@@ -177,8 +176,6 @@
           <span>Sort by</span>
           <select id="sort-select">
             <option value="elo-desc">ELO ↓</option>
-            <option value="appearances-desc">Appearances ↓</option>
-            <option value="release-desc">Release Date ↓</option>
             <option value="rank-asc">Endpoint Rank ↑</option>
             <option value="name-asc">Name A-Z</option>
           </select>
@@ -191,11 +188,6 @@
             <option value="20" selected>20</option>
             <option value="50">50</option>
           </select>
-        </label>
-
-        <label class="toggle">
-          <input id="categories-only-toggle" type="checkbox" />
-          <span>Only entries with category breakdowns</span>
         </label>
       </section>
 
@@ -245,8 +237,8 @@
             <details>
               <summary>Endpoint Rank</summary>
               <p>
-                Rank is reported by Artificial Analysis within each endpoint, so
-                rank 1 can appear once per endpoint family.
+                Position by ELO within each endpoint, so rank 1 can appear once
+                per endpoint family.
               </p>
             </details>
             <details>
@@ -254,21 +246,6 @@
               <p>
                 Confidence interval around the reported ELO score, as published
                 by Artificial Analysis.
-              </p>
-            </details>
-            <details>
-              <summary>Appearances</summary>
-              <p>
-                Number of benchmark comparisons or appearances supporting the
-                reported score.
-              </p>
-            </details>
-            <details>
-              <summary>Category breakdowns</summary>
-              <p>
-                Some endpoints expose additional category-level ELO results. The
-                table can be filtered to show only entries that include those
-                breakdowns.
               </p>
             </details>
           </div>

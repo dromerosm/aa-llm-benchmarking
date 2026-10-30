@@ -20,6 +20,7 @@ function createEmptyState(timestamp) {
     refreshInProgress: false,
     inflightToken: null,
     inflightExpiresAt: 0,
+    inflightCost: 0,
     lastRefreshStartedAt: 0,
     lastRefreshCompletedAt: 0,
     lastUpstreamRequestAt: 0,
@@ -91,6 +92,7 @@ export class UpstreamBudgetCoordinator extends DurableObject {
     state.lastRefreshStartedAt = now;
     state.inflightToken = `${state.dayKey}:${state.usedToday}:${now}`;
     state.inflightExpiresAt = now + INFLIGHT_TIMEOUT_MS;
+    state.inflightCost = cost;
 
     await this.ctx.storage.put(STATE_KEY, state);
 
@@ -104,13 +106,19 @@ export class UpstreamBudgetCoordinator extends DurableObject {
     };
   }
 
-  async finishRefresh({ token, now = Date.now(), dailyLimit }) {
+  async finishRefresh({ token, now = Date.now(), dailyLimit, usedCost }) {
     const state = await this.loadState(now);
 
     if (state.inflightToken === token) {
+      // Slots reserve a worst-case cost; give back what the refresh did not spend.
+      if (typeof usedCost === "number" && usedCost < state.inflightCost) {
+        state.usedToday = Math.max(0, state.usedToday - (state.inflightCost - usedCost));
+      }
+
       state.refreshInProgress = false;
       state.inflightToken = null;
       state.inflightExpiresAt = 0;
+      state.inflightCost = 0;
       state.lastRefreshCompletedAt = now;
       await this.ctx.storage.put(STATE_KEY, state);
     }

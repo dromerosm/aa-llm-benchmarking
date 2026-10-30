@@ -21,7 +21,7 @@ The project serves a static frontend from Cloudflare Assets and keeps model retr
 - Internal models Worker reachable only through a service binding
 - Wrangler configuration for local development and deployment
 - Edge caching and in-isolate memory caching for normalized API responses
-- Durable Object coordination to cap upstream refreshes at 1,000 requests per UTC day
+- Durable Object coordination to cap upstream requests at 80 per UTC day, inside the Artificial Analysis free tier quota
 - Durable Object pacing to keep at least 3 seconds between upstream API requests
 - Security hardening through response headers, secret handling, and method restrictions
 - CSP headers that stay compatible with Cloudflare challenge and analytics script injection
@@ -245,6 +245,35 @@ Important:
 
 All other non-asset or unsupported methods return the appropriate Worker response status.
 
+## Upstream API
+
+The app reads the free tier of the Artificial Analysis Data API v2. The legacy
+`/api/v2/data/*` endpoints are retired on November 4, 2026
+([migration guide](https://artificialanalysis.ai/data-api/migrate-v2-data)).
+
+| Data | Endpoint |
+| --- | --- |
+| Language models | `/api/v2/language/models/free` (paginated, 200 models per page) |
+| Text to image | `/api/v2/media/text-to-image/models/free` |
+| Image editing | `/api/v2/media/image-editing/models/free` |
+| Text to speech | `/api/v2/media/text-to-speech/models/free` |
+| Text to video | `/api/v2/media/text-to-video/models/free` |
+| Image to video | `/api/v2/media/image-to-video/models/free` |
+
+All requests send `API_KEY_AA` in the `x-api-key` header. Free keys get 100
+requests per 24-hour window, shared by every key in the same account scope. A
+full refresh costs one request per language model page (4 in October 2026) plus
+one per media endpoint.
+
+The free responses leave out some fields the legacy API sent:
+
+- language models: per-benchmark scores (GPQA, MMLU-Pro, LiveCodeBench, HLE,
+  SciCode, MATH-500, AIME), the Math index, and the blended price
+- media models: rank, appearances, release date, and category breakdowns
+
+The Worker rebuilds the 3:1 blended price from input and output prices and
+ranks each media leaderboard by ELO. The other fields are no longer shown.
+
 ## Data Model
 
 The internal models Worker returns normalized upstream data shaped for the frontend and injects it into the HTML payload served by the public Worker:
@@ -252,11 +281,9 @@ The internal models Worker returns normalized upstream data shaped for the front
 ```json
 {
   "apiStatus": 200,
-  "refreshedAt": "2026-04-17T13:52:07.019Z",
-  "promptOptions": {
-    "parallel_queries": 1,
-    "prompt_length": 1000
-  },
+  "apiTier": "free",
+  "intelligenceIndexVersion": 5,
+  "refreshedAt": "2026-10-30T13:52:07.019Z",
   "models": [
     {
       "id": "uuid",
@@ -264,18 +291,9 @@ The internal models Worker returns normalized upstream data shaped for the front
       "name": "GPT-5.4 nano (xhigh)",
       "creatorId": "uuid",
       "creator": "OpenAI",
-      "creatorSlug": "openai",
       "releaseDate": "2026-03-17",
       "intelligence": 44,
       "coding": 43.9,
-      "math": null,
-      "gpqa": 0.817,
-      "mmluPro": null,
-      "liveCodeBench": null,
-      "hle": 0.265,
-      "scicode": 0.469,
-      "math500": null,
-      "aime": null,
       "priceBlended": 0.463,
       "priceInput": 0.2,
       "priceOutput": 1.25,
@@ -289,7 +307,7 @@ The internal models Worker returns normalized upstream data shaped for the front
     "hit": true,
     "layer": "edge",
     "persistent": true,
-    "expiresAt": "2026-04-17T14:02:07.019Z"
+    "expiresAt": "2026-10-30T19:52:07.019Z"
   }
 }
 ```
@@ -298,6 +316,7 @@ Notes:
 
 - Missing upstream values are normalized to `null`
 - `detailsUrl` points to the public Artificial Analysis model page
+- `priceBlended` is computed as `(3 × priceInput + priceOutput) / 4`
 - `cache.layer` can be `memory`, `edge`, `network`, `stale-edge`, or `stale-memory`
 
 ## Caching Strategy
@@ -310,12 +329,13 @@ The Worker uses two data-serving caches and one coordination layer:
 
 Current behavior:
 
-- cache TTL is 10 minutes
+- cache TTL is 6 hours
 - memory cache is used first when valid
 - edge cache is used when memory cache is cold
 - upstream is fetched on cache miss or expiry
 - all upstream refresh attempts are coordinated through a Durable Object
-- upstream refreshes are capped at `1,000` requests per UTC day across all colos
+- upstream requests are capped at `80` per UTC day across all colos, leaving room for local development inside the free quota of 100
+- a model refresh reserves its worst-case page count and refunds the pages it did not fetch
 - stale edge cache is used as fallback if the upstream request fails
 - stale memory cache is used as a final local fallback when available
 
@@ -412,9 +432,9 @@ The media view includes:
 - one aggregated table across text-to-image, image-editing, text-to-speech, text-to-video, and image-to-video
 - model-name links to the original Artificial Analysis model page when the upstream entry exposes a slug
 - endpoint and creator filters
-- category-breakdown toggle
-- sortable ELO, appearances, release date, and rank columns
-- expandable columns for CI95, modality, and category previews
+- per-modality ELO leaders
+- sortable ELO and rank columns, with rank computed from ELO inside each endpoint
+- expandable columns for modality and CI95
 - pagination
 
 ## Validation

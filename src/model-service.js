@@ -1,8 +1,11 @@
 import { ApiError } from "./error.js";
 
-const UPSTREAM_URL = "https://artificialanalysis.ai/api/v2/data/llms/models";
-const CACHE_TTL_MS = 10 * 60 * 1000;
-const DAILY_UPSTREAM_LIMIT = 1_000;
+const UPSTREAM_URL = "https://artificialanalysis.ai/api/v2/language/models/free";
+// The free tier allows 100 requests per 24 hours, shared with the media endpoints.
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const DAILY_UPSTREAM_LIMIT = 80;
+// Each page is one upstream request. The list had 4 pages of 200 models in October 2026.
+const MAX_UPSTREAM_PAGES = 6;
 const CLIENT_CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=120";
 const EDGE_CACHE_PATH = "/__cache/models";
 const EDGE_CACHE_CONTROL = "public, max-age=31536000";
@@ -21,49 +24,42 @@ function normalizeOptionalMetric(value) {
   return value && value > 0 ? value : null;
 }
 
-function hydrateModel(model) {
-  return {
-    hle: null,
-    scicode: null,
-    math500: null,
-    aime: null,
-    creatorId: "",
-    ...model,
-  };
+// The free endpoint has no blended price, so rebuild the 3:1 input:output blend
+// Artificial Analysis uses for price_1m_blended_3_to_1.
+function blendedPrice(input, output) {
+  if (input === null || input === undefined || output === null || output === undefined) {
+    return null;
+  }
+
+  return Math.round(((3 * input + output) / 4) * 1000) / 1000;
 }
 
 function normalizeModel(model) {
   const evaluations = model.evaluations || {};
   const pricing = model.pricing || {};
+  const performance = model.performance || {};
+  const priceInput = pricing.price_1m_input_tokens ?? null;
+  const priceOutput = pricing.price_1m_output_tokens ?? null;
 
-  return hydrateModel({
+  return {
     id: model.id,
     slug: model.slug,
     name: model.name,
     creatorId: model.model_creator?.id || "",
     creator: model.model_creator?.name || "Unknown",
-    creatorSlug: model.model_creator?.slug || "",
     releaseDate: model.release_date || null,
     intelligence: evaluations.artificial_analysis_intelligence_index ?? null,
     coding: evaluations.artificial_analysis_coding_index ?? null,
-    math: evaluations.artificial_analysis_math_index ?? null,
-    gpqa: evaluations.gpqa ?? null,
-    mmluPro: evaluations.mmlu_pro ?? null,
-    liveCodeBench: evaluations.livecodebench ?? null,
-    hle: evaluations.hle ?? null,
-    scicode: evaluations.scicode ?? null,
-    math500: evaluations.math_500 ?? null,
-    aime: evaluations.aime ?? null,
-    priceBlended: pricing.price_1m_blended_3_to_1 ?? null,
-    priceInput: pricing.price_1m_input_tokens ?? null,
-    priceOutput: pricing.price_1m_output_tokens ?? null,
-    outputSpeed: normalizeOptionalMetric(model.median_output_tokens_per_second),
-    latency: normalizeOptionalMetric(model.median_time_to_first_token_seconds),
-    firstAnswerToken: normalizeOptionalMetric(model.median_time_to_first_answer_token),
+    priceBlended: blendedPrice(priceInput, priceOutput),
+    priceInput,
+    priceOutput,
+    outputSpeed: normalizeOptionalMetric(performance.median_output_tokens_per_second),
+    latency: normalizeOptionalMetric(performance.median_time_to_first_token_seconds),
+    firstAnswerToken: normalizeOptionalMetric(performance.median_time_to_first_answer_token_seconds),
     detailsUrl: model.slug
       ? `https://artificialanalysis.ai/models/${model.slug}`
       : null,
-  });
+  };
 }
 
 function createClientResponse(corePayload, cacheInfo, init = {}) {
@@ -145,11 +141,7 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function refreshFromUpstream(env) {
-  if (!env.API_KEY_AA) {
-    throw new Error("Missing required secret API_KEY_AA");
-  }
-
+async function fetchUpstreamPage(env, page) {
   const upstreamWindow = await getBudgetStub(env).scheduleUpstreamRequest({
     now: Date.now(),
     minIntervalMs: MIN_UPSTREAM_REQUEST_INTERVAL_MS,
@@ -159,7 +151,10 @@ async function refreshFromUpstream(env) {
     await sleep(upstreamWindow.waitMs);
   }
 
-  const response = await fetch(UPSTREAM_URL, {
+  const url = new URL(UPSTREAM_URL);
+  url.searchParams.set("page", String(page));
+
+  const response = await fetch(url.toString(), {
     headers: {
       "x-api-key": env.API_KEY_AA,
       Accept: "application/json",
@@ -167,22 +162,49 @@ async function refreshFromUpstream(env) {
   });
 
   if (!response.ok) {
-    throw new Error(`Artificial Analysis upstream error ${response.status}`);
+    throw new Error(`Artificial Analysis upstream error ${response.status} for page ${page}`);
   }
 
-  const payload = await response.json();
+  return response.json();
+}
+
+async function refreshFromUpstream(env, usage) {
+  if (!env.API_KEY_AA) {
+    throw new Error("Missing required secret API_KEY_AA");
+  }
+
+  const models = [];
+  let payload = null;
+
+  for (let page = 1; page <= MAX_UPSTREAM_PAGES; page += 1) {
+    usage.requests += 1;
+    payload = await fetchUpstreamPage(env, page);
+    models.push(...(payload.data || []).map(normalizeModel));
+
+    if (!payload.pagination?.has_more) {
+      break;
+    }
+  }
+
+  if (payload?.pagination?.has_more) {
+    console.warn("Artificial Analysis model list truncated", {
+      pages: MAX_UPSTREAM_PAGES,
+      totalPages: payload.pagination.total_pages,
+    });
+  }
 
   return {
-    apiStatus: payload.status ?? null,
+    apiStatus: 200,
+    apiTier: payload?.tier ?? null,
+    intelligenceIndexVersion: payload?.intelligence_index_version ?? null,
     refreshedAt: new Date().toISOString(),
-    promptOptions: payload.prompt_options || {},
-    models: (payload.data || []).map(normalizeModel),
+    models,
   };
 }
 
-async function getFreshPayload(env) {
+async function getFreshPayload(env, usage) {
   if (!inflightRefresh) {
-    inflightRefresh = refreshFromUpstream(env).finally(() => {
+    inflightRefresh = refreshFromUpstream(env, usage).finally(() => {
       inflightRefresh = null;
     });
   }
@@ -194,10 +216,11 @@ async function acquireUpstreamSlot(env, now) {
   return getBudgetStub(env).acquireRefreshSlot({
     now,
     dailyLimit: DAILY_UPSTREAM_LIMIT,
+    cost: MAX_UPSTREAM_PAGES,
   });
 }
 
-async function finishUpstreamSlot(env, token) {
+async function finishUpstreamSlot(env, token, usedCost) {
   if (!token) {
     return;
   }
@@ -206,6 +229,7 @@ async function finishUpstreamSlot(env, token) {
     token,
     now: Date.now(),
     dailyLimit: DAILY_UPSTREAM_LIMIT,
+    usedCost,
   });
 }
 
@@ -309,8 +333,10 @@ export async function getModelsApiResponse(request, env, ctx) {
       });
     }
 
+    const usage = { requests: 0 };
+
     try {
-      const freshPayload = await getFreshPayload(env);
+      const freshPayload = await getFreshPayload(env, usage);
       const expiresAt = Date.now() + CACHE_TTL_MS;
       const expiresAtIso = new Date(expiresAt).toISOString();
 
@@ -320,7 +346,7 @@ export async function getModelsApiResponse(request, env, ctx) {
       };
 
       persistEdgeCache(request, freshPayload, expiresAtIso, ctx);
-      await finishUpstreamSlot(env, slot.token);
+      await finishUpstreamSlot(env, slot.token, usage.requests);
 
       return createClientResponse(freshPayload, {
         hit: false,
@@ -329,7 +355,7 @@ export async function getModelsApiResponse(request, env, ctx) {
         expiresAt: expiresAtIso,
       });
     } catch (error) {
-      await finishUpstreamSlot(env, slot.token);
+      await finishUpstreamSlot(env, slot.token, usage.requests);
 
       if (staleFallback) {
         return createStaleResponse(

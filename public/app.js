@@ -3,7 +3,6 @@ const state = {
   filtered: [],
   apiStatus: null,
   refreshedAt: null,
-  promptOptions: {},
   cache: null,
   page: 1,
   pageSize: 20,
@@ -70,14 +69,6 @@ function formatMoney(value) {
   }
 
   return moneyFormat.format(value);
-}
-
-function formatShare(value) {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return "—";
-  }
-
-  return `${numberFormat.format(value * 100)}%`;
 }
 
 function formatPercent(value) {
@@ -378,26 +369,6 @@ function getColumns() {
       render: (model) => metricCell(model.coding, formatPercent),
     },
     {
-      key: "math",
-      label: "Math",
-      render: (model) => metricCell(model.math, formatPercent),
-    },
-    {
-      key: "gpqa",
-      label: "GPQA",
-      render: (model) => metricCell(model.gpqa, formatShare),
-    },
-    {
-      key: "mmluPro",
-      label: "MMLU-Pro",
-      render: (model) => metricCell(model.mmluPro, formatShare),
-    },
-    {
-      key: "liveCodeBench",
-      label: "LiveCodeBench",
-      render: (model) => metricCell(model.liveCodeBench, formatShare),
-    },
-    {
       key: "priceInput",
       label: "Input Price",
       render: (model) => metricCell(model.priceInput, formatMoney),
@@ -415,30 +386,7 @@ function getColumns() {
     },
   ];
 
-  const optionalColumns = [
-    {
-      key: "hle",
-      label: "HLE",
-      render: (model) => metricCell(model.hle, formatShare),
-    },
-    {
-      key: "scicode",
-      label: "SciCode",
-      render: (model) => metricCell(model.scicode, formatShare),
-    },
-    {
-      key: "math500",
-      label: "Math-500",
-      render: (model) => metricCell(model.math500, formatShare),
-    },
-    {
-      key: "aime",
-      label: "AIME",
-      render: (model) => metricCell(model.aime, formatShare),
-    },
-  ];
-
-  return [...columns, ...expandedColumns, ...optionalColumns];
+  return [...columns, ...expandedColumns];
 }
 
 function renderColumnMode() {
@@ -569,7 +517,6 @@ function applyPayload(payload) {
   state.models = payload.models || [];
   state.apiStatus = payload.apiStatus ?? null;
   state.refreshedAt = payload.refreshedAt;
-  state.promptOptions = payload.promptOptions || {};
   state.cache = payload.cache || null;
 
   writeCachedPayload(payload);

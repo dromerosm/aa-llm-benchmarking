@@ -23,7 +23,6 @@ const elements = {
   creatorFilter: document.querySelector("#creator-filter"),
   sortSelect: document.querySelector("#sort-select"),
   pageSizeSelect: document.querySelector("#page-size-select"),
-  categoriesOnlyToggle: document.querySelector("#categories-only-toggle"),
   expandColumnsButton: document.querySelector("#expand-columns-button"),
   tableHead: document.querySelector("#table-head"),
   tableBody: document.querySelector("#table-body"),
@@ -55,56 +54,6 @@ function formatMetric(value, suffix = "") {
   }
 
   return `${numberFormat.format(value)}${suffix}`;
-}
-
-function parseReleaseTimestamp(value) {
-  if (!value) {
-    return null;
-  }
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    return Date.parse(`${value}T00:00:00Z`);
-  }
-
-  if (/^\d{4}-\d{2}$/.test(value)) {
-    return Date.parse(`${value}-01T00:00:00Z`);
-  }
-
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-function formatDate(value) {
-  if (!value) {
-    return "—";
-  }
-
-  if (/^\d{4}-\d{2}$/.test(value)) {
-    const parsed = parseReleaseTimestamp(value);
-    if (parsed === null) {
-      return value;
-    }
-
-    return new Intl.DateTimeFormat("en-US", {
-      year: "numeric",
-      month: "short",
-    }).format(new Date(parsed));
-  }
-
-  if (/^[A-Za-z]{3} \d{4}$/.test(value)) {
-    return value;
-  }
-
-  const parsed = parseReleaseTimestamp(value);
-  if (parsed === null) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  }).format(new Date(parsed));
 }
 
 function formatUpdatedLabel(dateString) {
@@ -206,15 +155,6 @@ function rankByMetric(entries, metric, direction) {
     )[0];
 }
 
-function getLatestRelease(entries) {
-  return [...entries]
-    .filter((entry) => parseReleaseTimestamp(entry.releaseDate) !== null)
-    .sort(
-      (left, right) =>
-        parseReleaseTimestamp(right.releaseDate) - parseReleaseTimestamp(left.releaseDate),
-    )[0];
-}
-
 function getMostRepresentedCreator(entries) {
   const counts = new Map();
 
@@ -277,31 +217,29 @@ function renderHeroSpotlight() {
   `;
 }
 
+function topEloCard(endpointId, label) {
+  const top = rankByMetric(
+    state.entries.filter((entry) => entry.endpointId === endpointId),
+    "elo",
+    "desc",
+  );
+
+  return {
+    label,
+    title: top?.name || "N/A",
+    subtitle: top ? `${top.creator} · ${top.endpointLabel}` : "No data",
+    metric: top ? formatMetric(top.elo) : "—",
+  };
+}
+
 function renderSummary() {
-  const highestElo = rankByMetric(state.entries, "elo", "desc");
-  const mostEvaluated = rankByMetric(state.entries, "appearances", "desc");
-  const latestRelease = getLatestRelease(state.entries);
   const topCreator = getMostRepresentedCreator(state.entries);
 
+  // ELO is only comparable inside one leaderboard, so show a leader per modality.
   const cards = [
-    {
-      label: "Highest ELO",
-      title: highestElo?.name || "N/A",
-      subtitle: highestElo ? `${highestElo.creator} · ${highestElo.endpointLabel}` : "No data",
-      metric: highestElo ? formatMetric(highestElo.elo) : "—",
-    },
-    {
-      label: "Most Appearances",
-      title: mostEvaluated?.name || "N/A",
-      subtitle: mostEvaluated ? `${mostEvaluated.creator} · ${mostEvaluated.endpointLabel}` : "No data",
-      metric: mostEvaluated ? formatMetric(mostEvaluated.appearances) : "—",
-    },
-    {
-      label: "Latest Release",
-      title: latestRelease?.name || "N/A",
-      subtitle: latestRelease ? `${latestRelease.creator} · ${latestRelease.endpointLabel}` : "No data",
-      metric: latestRelease ? formatDate(latestRelease.releaseDate) : "—",
-    },
+    topEloCard("text-to-image", "Top Image ELO"),
+    topEloCard("text-to-video", "Top Video ELO"),
+    topEloCard("text-to-speech", "Top Speech ELO"),
     {
       label: "Most Represented Creator",
       title: topCreator?.[0] || "N/A",
@@ -362,24 +300,8 @@ function metricCell(value, formatter) {
   return escapeHtml(formatted);
 }
 
-function categoryPreview(entry) {
-  if (!entry.categoryCount) {
-    return `<span class="metric-empty">—</span>`;
-  }
-
-  const firstCategory = entry.categories[0] || {};
-  const preview = [
-    firstCategory.style_category,
-    firstCategory.subject_matter_category,
-    firstCategory.format_category,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
-  return `
-    <span>${escapeHtml(preview || "Category breakdown available")}</span>
-    <small>${escapeHtml(`${entry.categoryCount} category rows`)}</small>
-  `;
+function formatConfidence(value) {
+  return value === null || value === undefined ? "—" : `±${formatMetric(value)}`;
 }
 
 function getColumns() {
@@ -421,16 +343,6 @@ function getColumns() {
       label: "AA ELO",
       render: (entry) => metricCell(entry.elo, (value) => formatMetric(value)),
     },
-    {
-      key: "appearances",
-      label: "Appearances",
-      render: (entry) => metricCell(entry.appearances, (value) => formatMetric(value)),
-    },
-    {
-      key: "releaseDate",
-      label: "Release",
-      render: (entry) => escapeHtml(formatDate(entry.releaseDate)),
-    },
   ];
 
   if (!state.expandedColumns) {
@@ -447,17 +359,7 @@ function getColumns() {
     {
       key: "ci95",
       label: "CI95",
-      render: (entry) => escapeHtml(entry.ci95 || "—"),
-    },
-    {
-      key: "categoryCount",
-      label: "Category Rows",
-      render: (entry) => metricCell(entry.categoryCount, (value) => formatMetric(value)),
-    },
-    {
-      key: "categories",
-      label: "Category Preview",
-      render: (entry) => categoryPreview(entry),
+      render: (entry) => metricCell(entry.ci95, formatConfidence),
     },
   ];
 }
@@ -470,7 +372,7 @@ function renderColumnMode() {
   elements.pageShell.classList.toggle("columns-expanded", state.expandedColumns);
 
   const pills = state.expandedColumns
-    ? ["Includes CI95", "Includes category rows", "Includes category preview"]
+    ? ["Includes modality", "Includes CI95"]
     : ["Base media leaderboard view"];
 
   elements.columnModePills.innerHTML = pills
@@ -482,32 +384,21 @@ function applyFilters() {
   const search = elements.searchInput.value.trim().toLowerCase();
   const endpoint = elements.endpointFilter.value;
   const creator = elements.creatorFilter.value;
-  const categoriesOnly = elements.categoriesOnlyToggle.checked;
   const [field, direction] = elements.sortSelect.value.split("-");
 
   const sortMap = {
     elo: "elo",
-    appearances: "appearances",
-    release: "releaseTimestamp",
     rank: "rank",
     name: "name",
   };
 
   const filtered = state.entries
-    .map((entry) => ({
-      ...entry,
-      releaseTimestamp: parseReleaseTimestamp(entry.releaseDate),
-    }))
     .filter((entry) => {
       if (endpoint !== "all" && entry.endpointLabel !== endpoint) {
         return false;
       }
 
       if (creator !== "all" && entry.creator !== creator) {
-        return false;
-      }
-
-      if (categoriesOnly && entry.categoryCount === 0) {
         return false;
       }
 
@@ -542,10 +433,7 @@ function renderTable() {
   const startIndex = total === 0 ? 0 : (state.page - 1) * state.pageSize;
   const endIndex = Math.min(startIndex + state.pageSize, total);
   const visibleEntries = state.filtered.slice(startIndex, endIndex);
-  const visibleCategoryRows = state.filtered.reduce(
-    (sum, entry) => sum + (entry.categoryCount || 0),
-    0,
-  );
+  const visibleCreators = new Set(state.filtered.map((entry) => entry.creator)).size;
 
   elements.tableHead.innerHTML = `
     <tr>
@@ -556,7 +444,7 @@ function renderTable() {
   `;
 
   elements.tableCaption.textContent = `${total} entries shown`;
-  elements.tableMetaRight.textContent = `${visibleCategoryRows} category rows in current result set`;
+  elements.tableMetaRight.textContent = `${visibleCreators} creators in current result set`;
   elements.paginationStatus.textContent =
     total === 0
       ? "No matching entries"
@@ -622,10 +510,6 @@ function bindEvents() {
   });
   elements.pageSizeSelect.addEventListener("change", () => {
     state.pageSize = Number(elements.pageSizeSelect.value);
-    state.page = 1;
-    applyFilters();
-  });
-  elements.categoriesOnlyToggle.addEventListener("change", () => {
     state.page = 1;
     applyFilters();
   });

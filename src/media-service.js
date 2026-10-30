@@ -5,37 +5,33 @@ const MEDIA_ENDPOINTS = [
     id: "text-to-image",
     label: "Text to Image",
     modality: "Image",
-    includeCategories: true,
   },
   {
     id: "image-editing",
     label: "Image Editing",
     modality: "Image",
-    includeCategories: false,
   },
   {
     id: "text-to-speech",
     label: "Text to Speech",
     modality: "Speech",
-    includeCategories: false,
   },
   {
     id: "text-to-video",
     label: "Text to Video",
     modality: "Video",
-    includeCategories: true,
   },
   {
     id: "image-to-video",
     label: "Image to Video",
     modality: "Video",
-    includeCategories: true,
   },
 ];
 
-const UPSTREAM_BASE_URL = "https://artificialanalysis.ai/api/v2/data/media";
-const CACHE_TTL_MS = 10 * 60 * 1000;
-const DAILY_UPSTREAM_LIMIT = 1_000;
+const UPSTREAM_BASE_URL = "https://artificialanalysis.ai/api/v2/media";
+// The free tier allows 100 requests per 24 hours, shared with the model list.
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const DAILY_UPSTREAM_LIMIT = 80;
 const CLIENT_CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=120";
 const EDGE_CACHE_PATH = "/__cache/media";
 const EDGE_CACHE_CONTROL = "public, max-age=31536000";
@@ -51,34 +47,30 @@ let memoryCache = {
 let inflightRefresh = null;
 
 function buildEndpointUrl(endpoint) {
-  const url = new URL(`${UPSTREAM_BASE_URL}/${endpoint.id}`);
-  if (endpoint.includeCategories) {
-    url.searchParams.set("include_categories", "true");
-  }
-
-  return url.toString();
+  return `${UPSTREAM_BASE_URL}/${endpoint.id}/models/free`;
 }
 
-function normalizeMediaEntry(endpoint, entry) {
-  const categories = Array.isArray(entry.categories) ? entry.categories : [];
-
+function normalizeMediaEntry(endpoint, entry, rank) {
   return {
-    ...entry,
+    id: entry.id,
+    name: entry.name,
+    slug: entry.slug,
     endpointId: endpoint.id,
     endpointLabel: endpoint.label,
     modality: endpoint.modality,
-    supportsCategories: endpoint.includeCategories,
     creatorId: entry.model_creator?.id || "",
     creator: entry.model_creator?.name || "Unknown",
-    creatorSlug: entry.model_creator?.slug || "",
     elo: entry.elo ?? null,
-    rank: entry.rank ?? null,
-    ci95: entry.ci95 ?? null,
-    appearances: entry.appearances ?? null,
-    releaseDate: entry.release_date ?? null,
-    categories,
-    categoryCount: categories.length,
+    rank,
+    ci95: entry.ci_95 ?? null,
   };
+}
+
+// The free endpoints no longer send a rank, so rank each leaderboard by Elo.
+function rankEntries(endpoint, entries) {
+  return [...entries]
+    .sort((left, right) => (right.elo ?? -Infinity) - (left.elo ?? -Infinity))
+    .map((entry, index) => normalizeMediaEntry(endpoint, entry, entry.elo === null || entry.elo === undefined ? null : index + 1));
 }
 
 function createClientResponse(corePayload, cacheInfo, init = {}) {
@@ -199,19 +191,18 @@ async function refreshFromUpstream(env) {
   }
 
   const entries = responses.flatMap(({ endpoint, payload }) =>
-    (payload.data || []).map((entry) => normalizeMediaEntry(endpoint, entry)),
+    rankEntries(endpoint, payload.data || []),
   );
 
   return {
-    apiStatus: responses.every(({ payload }) => payload.status === 200) ? 200 : 207,
+    apiStatus: 200,
+    apiTier: responses[0]?.payload.tier ?? null,
     refreshedAt: new Date().toISOString(),
     endpoints: responses.map(({ endpoint, payload }) => ({
       id: endpoint.id,
       label: endpoint.label,
       modality: endpoint.modality,
-      includeCategories: endpoint.includeCategories,
       count: Array.isArray(payload.data) ? payload.data.length : 0,
-      status: payload.status ?? null,
     })),
     entries,
   };

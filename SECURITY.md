@@ -119,7 +119,7 @@ HTML responses get this policy (`src/security.js`), with a fresh nonce per reque
 
 ### Third-Party Analytics
 
-Every HTML page loads Google Analytics 4 (`G-B8118TCBQY`). The configuration lives in the same-origin `public/analytics.js`, so no inline script is needed. That file adds the `gtag.js` loader from `www.googletagmanager.com`, only on `diegoromero.es` hosts and only after the first interaction or an idle moment.
+Every HTML page loads Google Analytics 4 (`G-B8118TCBQY`). The configuration lives in the same-origin `public/analytics.js`, so no inline script is needed. That file adds the `gtag.js` loader from `www.googletagmanager.com` only on `diegoromero.es` hosts and only after the visitor accepts the cookie notice. Its notice is styled through the DOM, so the CSP needs no `unsafe-inline` for it.
 
 The CSP allows only what GA4 needs:
 

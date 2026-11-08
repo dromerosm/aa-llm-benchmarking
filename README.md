@@ -317,27 +317,30 @@ Notes:
 - Missing upstream values are normalized to `null`
 - `detailsUrl` points to the public Artificial Analysis model page
 - `priceBlended` is computed as `(3 × priceInput + priceOutput) / 4`
-- `cache.layer` can be `memory`, `edge`, `network`, `stale-edge`, or `stale-memory`
+- `cache.layer` can be `memory`, `edge`, `shared`, `network`, `stale-edge`, `stale-memory`, or `stale-shared`
 
 ## Caching Strategy
 
-The Worker uses two data-serving caches and one coordination layer:
+The Worker uses three data-serving caches, the last of which also coordinates upstream access:
 
 1. In-isolate memory cache
 2. Cloudflare Cache API (`caches.default`)
-3. `UpstreamBudgetCoordinator` Durable Object
+3. `UpstreamBudgetCoordinator` Durable Object, which keeps the last refreshed payload
 
 Current behavior:
 
 - cache TTL is 6 hours
 - memory cache is used first when valid
 - edge cache is used when memory cache is cold
-- upstream is fetched on cache miss or expiry
+- on a local cache miss, the Durable Object hands over the last refreshed payload if it is still valid (`shared`), so each data center does not refresh from upstream on its own
+- upstream is fetched only when the shared payload is missing or expired
 - all upstream refresh attempts are coordinated through a Durable Object
 - upstream requests are capped at `80` per UTC day across all colos, leaving room for local development inside the free quota of 100
 - a model refresh reserves its worst-case page count and refunds the pages it did not fetch
 - stale edge cache is used as fallback if the upstream request fails
 - stale memory cache is used as a final local fallback when available
+- a data center with no local copy gets the stale shared payload (`stale-shared`) instead of an error
+- once the daily budget is exhausted, each isolate stops asking the Durable Object until the UTC reset and serves its stale copy
 
 Important Cloudflare note:
 

@@ -36,6 +36,7 @@ const CLIENT_CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=120";
 const EDGE_CACHE_PATH = "/__cache/media";
 const EDGE_CACHE_CONTROL = "public, max-age=31536000";
 const UPSTREAM_BUDGET_OBJECT = "artificial-analysis-api";
+const SHARED_CACHE_KEY = "media";
 const INFLIGHT_RETRY_DELAY_MS = 1_000;
 const MIN_UPSTREAM_REQUEST_INTERVAL_MS = 3_000;
 
@@ -45,6 +46,9 @@ let memoryCache = {
 };
 
 let inflightRefresh = null;
+
+// Once the daily upstream budget is spent, skip the coordinator until it resets.
+let budgetBlockedUntil = 0;
 
 function buildEndpointUrl(endpoint) {
   return `${UPSTREAM_BASE_URL}/${endpoint.id}/models/free`;
@@ -218,15 +222,17 @@ async function getFreshPayload(env) {
   return inflightRefresh;
 }
 
-async function acquireUpstreamSlot(env, now) {
+async function acquireUpstreamSlot(env, now, wantStale) {
   return getBudgetStub(env).acquireRefreshSlot({
     now,
+    cacheKey: SHARED_CACHE_KEY,
+    wantStale,
     dailyLimit: DAILY_UPSTREAM_LIMIT,
     cost: MEDIA_ENDPOINTS.length,
   });
 }
 
-async function finishUpstreamSlot(env, token) {
+async function finishUpstreamSlot(env, token, shared) {
   if (!token) {
     return;
   }
@@ -235,6 +241,26 @@ async function finishUpstreamSlot(env, token) {
     token,
     now: Date.now(),
     dailyLimit: DAILY_UPSTREAM_LIMIT,
+    ...(shared && { cacheKey: SHARED_CACHE_KEY, ...shared }),
+  });
+}
+
+// Another data center already refreshed: reuse its payload without calling upstream.
+function createSharedResponse(request, slot, ctx) {
+  const expiresAtIso = new Date(slot.expiresAt).toISOString();
+
+  memoryCache = {
+    data: slot.payload,
+    expiresAt: slot.expiresAt,
+  };
+
+  persistEdgeCache(request, slot.payload, expiresAtIso, ctx);
+
+  return createClientResponse(slot.payload, {
+    hit: true,
+    layer: "shared",
+    persistent: true,
+    expiresAt: expiresAtIso,
   });
 }
 
@@ -266,7 +292,7 @@ export async function getMediaApiResponse(request, env, ctx) {
   }
 
   const memoryFallback = staleMemoryEntry();
-  const staleFallback = edgeEntry?.payload
+  let staleFallback = edgeEntry?.payload
     ? {
         payload: edgeEntry.payload,
         expiresAt: edgeEntry.expiresAt,
@@ -280,8 +306,21 @@ export async function getMediaApiResponse(request, env, ctx) {
         }
       : null;
 
+  if (staleFallback && budgetBlockedUntil > now) {
+    return createStaleResponse(
+      staleFallback.payload,
+      staleFallback.expiresAt,
+      staleFallback.layer,
+      staleFallback.layer !== "stale-memory",
+    );
+  }
+
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const slot = await acquireUpstreamSlot(env, Date.now());
+    const slot = await acquireUpstreamSlot(env, Date.now(), !staleFallback);
+
+    if (slot.reason === "cached") {
+      return createSharedResponse(request, slot, ctx);
+    }
 
     if (!slot.allowed) {
       if (slot.reason === "inflight" && attempt === 0) {
@@ -319,6 +358,18 @@ export async function getMediaApiResponse(request, env, ctx) {
         continue;
       }
 
+      if (slot.reason === "daily-limit") {
+        budgetBlockedUntil = Date.parse(slot.resetAt) || 0;
+      }
+
+      if (!staleFallback && slot.payload) {
+        staleFallback = {
+          payload: slot.payload,
+          expiresAt: slot.expiresAt,
+          layer: "stale-shared",
+        };
+      }
+
       if (staleFallback) {
         return createStaleResponse(
           staleFallback.payload,
@@ -349,7 +400,7 @@ export async function getMediaApiResponse(request, env, ctx) {
       };
 
       persistEdgeCache(request, freshPayload, expiresAtIso, ctx);
-      await finishUpstreamSlot(env, slot.token);
+      await finishUpstreamSlot(env, slot.token, { payload: freshPayload, expiresAt });
 
       return createClientResponse(freshPayload, {
         hit: false,

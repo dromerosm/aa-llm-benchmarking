@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 
-const STATE_KEY = "upstream-budget-state";
+// v2 counts only upstream requests actually sent; v1 kept reservations that were never returned.
+const STATE_KEY = "upstream-budget-state-v2";
 const INFLIGHT_TIMEOUT_MS = 30 * 1000;
 const PAYLOAD_KEY_PREFIX = "payload:";
 
@@ -63,39 +64,19 @@ export class UpstreamBudgetCoordinator extends DurableObject {
     };
   }
 
-  // The edge cache is per data center, so the last refreshed payload is kept here
-  // and handed to any data center that misses, instead of calling upstream again.
-  async loadPayload(cacheKey) {
-    if (!cacheKey) {
-      return null;
-    }
-
+  // The edge cache is per data center, so the last refreshed payload lives here
+  // and every data center reads it instead of calling upstream.
+  async getSharedPayload({ cacheKey }) {
     return (await this.ctx.storage.get(`${PAYLOAD_KEY_PREFIX}${cacheKey}`)) || null;
   }
 
-  async acquireRefreshSlot({ now = Date.now(), dailyLimit, cost = 1, cacheKey, wantStale = false }) {
-    const shared = await this.loadPayload(cacheKey);
-
-    if (shared && shared.expiresAt > now) {
-      return {
-        allowed: false,
-        reason: "cached",
-        payload: shared.payload,
-        expiresAt: shared.expiresAt,
-      };
-    }
-
+  async acquireRefreshSlot({ now = Date.now(), dailyLimit, cost = 1 }) {
     const state = await this.loadState(now);
-    // Only send a stale copy when the caller has nothing local to fall back on.
-    const stale = wantStale && shared
-      ? { payload: shared.payload, expiresAt: shared.expiresAt }
-      : {};
 
     if (state.refreshInProgress) {
       return {
         allowed: false,
         reason: "inflight",
-        ...stale,
         dayKey: state.dayKey,
         usedToday: state.usedToday,
         remainingToday: Math.max(0, dailyLimit - state.usedToday),
@@ -107,7 +88,6 @@ export class UpstreamBudgetCoordinator extends DurableObject {
       return {
         allowed: false,
         reason: "daily-limit",
-        ...stale,
         dayKey: state.dayKey,
         usedToday: state.usedToday,
         remainingToday: 0,
@@ -134,12 +114,12 @@ export class UpstreamBudgetCoordinator extends DurableObject {
     };
   }
 
-  async finishRefresh({ token, now = Date.now(), dailyLimit, usedCost, cacheKey, payload, expiresAt }) {
+  async finishRefresh({ token, now = Date.now(), dailyLimit, usedCost, cacheKey, payload, refreshedAt, expiresAt }) {
     const state = await this.loadState(now);
 
     if (cacheKey && payload && expiresAt) {
       try {
-        await this.ctx.storage.put(`${PAYLOAD_KEY_PREFIX}${cacheKey}`, { payload, expiresAt });
+        await this.ctx.storage.put(`${PAYLOAD_KEY_PREFIX}${cacheKey}`, { payload, refreshedAt, expiresAt });
       } catch (error) {
         console.error("Failed to store shared payload", {
           cacheKey,

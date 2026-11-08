@@ -1,28 +1,11 @@
-import { ApiError } from "./error.js";
+import { createSharedCache, paceUpstreamRequest, refreshShared } from "./shared-cache.js";
 
 const UPSTREAM_URL = "https://artificialanalysis.ai/api/v2/language/models/free";
-// The free tier allows 100 requests per 24 hours, shared with the media endpoints.
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const DAILY_UPSTREAM_LIMIT = 80;
+const SHARED_CACHE_KEY = "models";
 // Each page is one upstream request. The list had 4 pages of 200 models in October 2026.
 const MAX_UPSTREAM_PAGES = 6;
-const CLIENT_CACHE_CONTROL = "public, max-age=60, stale-while-revalidate=120";
-const EDGE_CACHE_PATH = "/__cache/models";
-const EDGE_CACHE_CONTROL = "public, max-age=31536000";
-const UPSTREAM_BUDGET_OBJECT = "artificial-analysis-api";
-const SHARED_CACHE_KEY = "models";
-const INFLIGHT_RETRY_DELAY_MS = 1_000;
-const MIN_UPSTREAM_REQUEST_INTERVAL_MS = 3_000;
 
-let memoryCache = {
-  data: null,
-  expiresAt: 0,
-};
-
-let inflightRefresh = null;
-
-// Once the daily upstream budget is spent, skip the coordinator until it resets.
-let budgetBlockedUntil = 0;
+const sharedCache = createSharedCache({ key: SHARED_CACHE_KEY, label: "Model" });
 
 function normalizeOptionalMetric(value) {
   return value && value > 0 ? value : null;
@@ -66,98 +49,13 @@ function normalizeModel(model) {
   };
 }
 
-function createClientResponse(corePayload, cacheInfo, init = {}) {
-  return Response.json(
-    {
-      ...corePayload,
-      cache: cacheInfo,
-    },
-    {
-      status: init.status ?? 200,
-      headers: {
-        "Cache-Control": CLIENT_CACHE_CONTROL,
-        ...init.headers,
-      },
-    },
-  );
-}
-
-function staleMemoryEntry() {
-  if (!memoryCache.data) {
-    return null;
-  }
-
-  return {
-    payload: memoryCache.data,
-    expiresAt: memoryCache.expiresAt || null,
-  };
-}
-
-function getCacheKey(request) {
-  return new Request(new URL(EDGE_CACHE_PATH, request.url).toString(), {
-    method: "GET",
-  });
-}
-
-async function readEdgeCache(request) {
-  const cachedResponse = await caches.default.match(getCacheKey(request));
-
-  if (!cachedResponse) {
-    return null;
-  }
-
-  const expiresAt = cachedResponse.headers.get("x-aa-cache-expires-at");
-  const parsedExpiresAt = expiresAt ? Date.parse(expiresAt) : NaN;
-  const payload = await cachedResponse.json();
-
-  return {
-    payload,
-    expiresAt: Number.isNaN(parsedExpiresAt) ? null : parsedExpiresAt,
-  };
-}
-
-function persistEdgeCache(request, payload, expiresAtIso, ctx) {
-  const response = new Response(JSON.stringify(payload), {
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": EDGE_CACHE_CONTROL,
-      "x-aa-cache-expires-at": expiresAtIso,
-    },
-  });
-
-  ctx.waitUntil(caches.default.put(getCacheKey(request), response));
-}
-
-function createStaleResponse(payload, expiresAt, layer, persistent) {
-  return createClientResponse(payload, {
-    hit: true,
-    layer,
-    persistent,
-    expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
-  });
-}
-
-function getBudgetStub(env) {
-  return env.UPSTREAM_BUDGET.getByName(UPSTREAM_BUDGET_OBJECT);
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function fetchUpstreamPage(env, page) {
-  const upstreamWindow = await getBudgetStub(env).scheduleUpstreamRequest({
-    now: Date.now(),
-    minIntervalMs: MIN_UPSTREAM_REQUEST_INTERVAL_MS,
-  });
-
-  if (upstreamWindow.waitMs > 0) {
-    await sleep(upstreamWindow.waitMs);
-  }
+async function fetchUpstreamPage(env, page, usage) {
+  await paceUpstreamRequest(env);
 
   const url = new URL(UPSTREAM_URL);
   url.searchParams.set("page", String(page));
 
+  usage.requests += 1;
   const response = await fetch(url.toString(), {
     headers: {
       "x-api-key": env.API_KEY_AA,
@@ -172,17 +70,12 @@ async function fetchUpstreamPage(env, page) {
   return response.json();
 }
 
-async function refreshFromUpstream(env, usage) {
-  if (!env.API_KEY_AA) {
-    throw new Error("Missing required secret API_KEY_AA");
-  }
-
+async function fetchModelsPayload(env, usage) {
   const models = [];
   let payload = null;
 
   for (let page = 1; page <= MAX_UPSTREAM_PAGES; page += 1) {
-    usage.requests += 1;
-    payload = await fetchUpstreamPage(env, page);
+    payload = await fetchUpstreamPage(env, page, usage);
     models.push(...(payload.data || []).map(normalizeModel));
 
     if (!payload.pagination?.has_more) {
@@ -206,229 +99,14 @@ async function refreshFromUpstream(env, usage) {
   };
 }
 
-async function getFreshPayload(env, usage) {
-  if (!inflightRefresh) {
-    inflightRefresh = refreshFromUpstream(env, usage).finally(() => {
-      inflightRefresh = null;
-    });
-  }
-
-  return inflightRefresh;
+export function getModelsApiResponse(request, env, ctx) {
+  return sharedCache.respond(request, env, ctx);
 }
 
-async function acquireUpstreamSlot(env, now, wantStale) {
-  return getBudgetStub(env).acquireRefreshSlot({
-    now,
-    cacheKey: SHARED_CACHE_KEY,
-    wantStale,
-    dailyLimit: DAILY_UPSTREAM_LIMIT,
+export function refreshModels(env) {
+  return refreshShared(env, {
+    key: SHARED_CACHE_KEY,
     cost: MAX_UPSTREAM_PAGES,
+    fetchPayload: fetchModelsPayload,
   });
-}
-
-async function finishUpstreamSlot(env, token, usedCost, shared) {
-  if (!token) {
-    return;
-  }
-
-  await getBudgetStub(env).finishRefresh({
-    token,
-    now: Date.now(),
-    dailyLimit: DAILY_UPSTREAM_LIMIT,
-    usedCost,
-    ...(shared && { cacheKey: SHARED_CACHE_KEY, ...shared }),
-  });
-}
-
-// Another data center already refreshed: reuse its payload without calling upstream.
-function createSharedResponse(request, slot, ctx) {
-  const expiresAtIso = new Date(slot.expiresAt).toISOString();
-
-  memoryCache = {
-    data: slot.payload,
-    expiresAt: slot.expiresAt,
-  };
-
-  persistEdgeCache(request, slot.payload, expiresAtIso, ctx);
-
-  return createClientResponse(slot.payload, {
-    hit: true,
-    layer: "shared",
-    persistent: true,
-    expiresAt: expiresAtIso,
-  });
-}
-
-export async function getModelsApiResponse(request, env, ctx) {
-  const now = Date.now();
-
-  if (memoryCache.data && memoryCache.expiresAt > now) {
-    return createClientResponse(memoryCache.data, {
-      hit: true,
-      layer: "memory",
-      persistent: false,
-      expiresAt: new Date(memoryCache.expiresAt).toISOString(),
-    });
-  }
-
-  const edgeEntry = await readEdgeCache(request);
-  if (edgeEntry?.payload && edgeEntry.expiresAt && edgeEntry.expiresAt > now) {
-    memoryCache = {
-      data: edgeEntry.payload,
-      expiresAt: edgeEntry.expiresAt,
-    };
-
-    return createClientResponse(edgeEntry.payload, {
-      hit: true,
-      layer: "edge",
-      persistent: true,
-      expiresAt: new Date(edgeEntry.expiresAt).toISOString(),
-    });
-  }
-
-  const memoryFallback = staleMemoryEntry();
-  let staleFallback = edgeEntry?.payload
-    ? {
-        payload: edgeEntry.payload,
-        expiresAt: edgeEntry.expiresAt,
-        layer: "stale-edge",
-      }
-    : memoryFallback
-      ? {
-          payload: memoryFallback.payload,
-          expiresAt: memoryFallback.expiresAt,
-          layer: "stale-memory",
-        }
-      : null;
-
-  if (staleFallback && budgetBlockedUntil > now) {
-    return createStaleResponse(
-      staleFallback.payload,
-      staleFallback.expiresAt,
-      staleFallback.layer,
-      staleFallback.layer !== "stale-memory",
-    );
-  }
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const slot = await acquireUpstreamSlot(env, Date.now(), !staleFallback);
-
-    if (slot.reason === "cached") {
-      return createSharedResponse(request, slot, ctx);
-    }
-
-    if (!slot.allowed) {
-      if (slot.reason === "inflight" && attempt === 0) {
-        await sleep(INFLIGHT_RETRY_DELAY_MS);
-
-        const retriedAt = Date.now();
-        if (memoryCache.data && memoryCache.expiresAt > retriedAt) {
-          return createClientResponse(memoryCache.data, {
-            hit: true,
-            layer: "memory",
-            persistent: false,
-            expiresAt: new Date(memoryCache.expiresAt).toISOString(),
-          });
-        }
-
-        const retriedEdgeEntry = await readEdgeCache(request);
-        if (
-          retriedEdgeEntry?.payload &&
-          retriedEdgeEntry.expiresAt &&
-          retriedEdgeEntry.expiresAt > retriedAt
-        ) {
-          memoryCache = {
-            data: retriedEdgeEntry.payload,
-            expiresAt: retriedEdgeEntry.expiresAt,
-          };
-
-          return createClientResponse(retriedEdgeEntry.payload, {
-            hit: true,
-            layer: "edge",
-            persistent: true,
-            expiresAt: new Date(retriedEdgeEntry.expiresAt).toISOString(),
-          });
-        }
-
-        continue;
-      }
-
-      if (slot.reason === "daily-limit") {
-        budgetBlockedUntil = Date.parse(slot.resetAt) || 0;
-      }
-
-      if (!staleFallback && slot.payload) {
-        staleFallback = {
-          payload: slot.payload,
-          expiresAt: slot.expiresAt,
-          layer: "stale-shared",
-        };
-      }
-
-      if (staleFallback) {
-        return createStaleResponse(
-          staleFallback.payload,
-          staleFallback.expiresAt,
-          staleFallback.layer,
-          staleFallback.layer !== "stale-memory",
-        );
-      }
-
-      if (slot.reason === "inflight") {
-        throw new ApiError("Model refresh already in progress", 503);
-      }
-
-      throw new ApiError("Upstream refresh budget exhausted for today", 503, {
-        limit: DAILY_UPSTREAM_LIMIT,
-        resetAt: slot.resetAt,
-      });
-    }
-
-    const usage = { requests: 0 };
-
-    try {
-      const freshPayload = await getFreshPayload(env, usage);
-      const expiresAt = Date.now() + CACHE_TTL_MS;
-      const expiresAtIso = new Date(expiresAt).toISOString();
-
-      memoryCache = {
-        data: freshPayload,
-        expiresAt,
-      };
-
-      persistEdgeCache(request, freshPayload, expiresAtIso, ctx);
-      await finishUpstreamSlot(env, slot.token, usage.requests, { payload: freshPayload, expiresAt });
-
-      return createClientResponse(freshPayload, {
-        hit: false,
-        layer: "network",
-        persistent: true,
-        expiresAt: expiresAtIso,
-      });
-    } catch (error) {
-      await finishUpstreamSlot(env, slot.token, usage.requests);
-
-      if (staleFallback) {
-        return createStaleResponse(
-          staleFallback.payload,
-          staleFallback.expiresAt,
-          staleFallback.layer,
-          staleFallback.layer !== "stale-memory",
-        );
-      }
-
-      throw error;
-    }
-  }
-
-  if (staleFallback) {
-    return createStaleResponse(
-      staleFallback.payload,
-      staleFallback.expiresAt,
-      staleFallback.layer,
-      staleFallback.layer !== "stale-memory",
-    );
-  }
-
-  throw new ApiError("Model refresh already in progress", 503);
 }

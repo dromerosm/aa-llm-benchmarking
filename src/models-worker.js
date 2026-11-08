@@ -1,6 +1,6 @@
 import { ApiError } from "./error.js";
-import { getMediaApiResponse } from "./media-service.js";
-import { getModelsApiResponse } from "./model-service.js";
+import { getMediaApiResponse, refreshMedia } from "./media-service.js";
+import { getModelsApiResponse, refreshModels } from "./model-service.js";
 import { applySecurityHeaders } from "./security.js";
 import { UpstreamBudgetCoordinator } from "./upstream-budget.js";
 
@@ -94,6 +94,15 @@ export default {
         : new Response("Not Found", { status: 404 });
 
     return applySecurityHeaders(response, request);
+  },
+
+  // Runs every 15 minutes; each refresh only calls upstream when its data is due.
+  // They run one after the other because upstream requests are paced.
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil((async () => {
+      await refreshModels(env);
+      await refreshMedia(env);
+    })());
   },
 };
 

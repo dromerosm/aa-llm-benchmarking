@@ -21,6 +21,7 @@ The project serves a static frontend from Cloudflare Assets and keeps model retr
 - Internal models Worker reachable only through a service binding
 - Wrangler configuration for local development and deployment
 - Edge caching and in-isolate memory caching for normalized API responses
+- A cron trigger refreshes upstream data every 6 hours; visitor requests never call the Artificial Analysis API
 - Durable Object coordination to cap upstream requests at 80 per UTC day, inside the Artificial Analysis free tier quota
 - Durable Object pacing to keep at least 3 seconds between upstream API requests
 - Security hardening through response headers, secret handling, and method restrictions
@@ -46,6 +47,7 @@ Key runtime files:
 - [src/models-worker.js](src/models-worker.js)
 - [src/model-service.js](src/model-service.js)
 - [src/media-service.js](src/media-service.js)
+- [src/shared-cache.js](src/shared-cache.js)
 - [src/security.js](src/security.js)
 - [src/upstream-budget.js](src/upstream-budget.js)
 - [wrangler.jsonc](wrangler.jsonc)
@@ -218,6 +220,7 @@ Important:
 │   ├── models-worker.js  # Internal models Worker
 │   ├── error.js
 │   ├── security.js
+│   ├── shared-cache.js   # Read path and scheduled refresh
 │   ├── upstream-budget.js
 │   └── worker.js         # Public Worker entrypoint
 ├── infra/cloudflare/     # Terraform for WAF and rate limiting
@@ -321,31 +324,28 @@ Notes:
 
 ## Caching Strategy
 
-The Worker uses three data-serving caches, the last of which also coordinates upstream access:
+Upstream data is refreshed on a schedule, not by visitors:
+
+- a cron trigger on the internal Worker runs every 15 minutes (`*/15 * * * *` in `wrangler.models.jsonc`)
+- each run asks the `UpstreamBudgetCoordinator` Durable Object how old the stored payload is, and only calls Artificial Analysis when it is 6 hours old, so the model list and the media leaderboards refresh about 4 times a day each
+- a failed refresh is retried on the next run, 15 minutes later
+- the refreshed payload is stored in the Durable Object, which is the single copy shared by every data center
+- upstream requests are capped at `80` per UTC day and paced at least 3 seconds apart; a full refresh of both payloads uses 9 requests, leaving room for local development inside the free quota of 100
+
+Visitor requests only read, in this order:
 
 1. In-isolate memory cache
-2. Cloudflare Cache API (`caches.default`)
-3. `UpstreamBudgetCoordinator` Durable Object, which keeps the last refreshed payload
+2. Cloudflare Cache API (`caches.default`) of the data center
+3. The payload stored in the Durable Object (`shared`), which is then written to the two layers above
 
-Current behavior:
+Copies stay valid for 6 hours 30 minutes after a refresh, so the next refresh lands before they expire. If the scheduled refresh keeps failing, requests serve the newest stale copy (`stale-shared`, `stale-edge`, or `stale-memory`) and ask the Durable Object again every 5 minutes. Right after the first deployment, before the first scheduled run, requests return `503`.
 
-- cache TTL is 6 hours
-- memory cache is used first when valid
-- edge cache is used when memory cache is cold
-- on a local cache miss, the Durable Object hands over the last refreshed payload if it is still valid (`shared`), so each data center does not refresh from upstream on its own
-- upstream is fetched only when the shared payload is missing or expired
-- all upstream refresh attempts are coordinated through a Durable Object
-- upstream requests are capped at `80` per UTC day across all colos, leaving room for local development inside the free quota of 100
-- a model refresh reserves its worst-case page count and refunds the pages it did not fetch
-- stale edge cache is used as fallback if the upstream request fails
-- stale memory cache is used as a final local fallback when available
-- a data center with no local copy gets the stale shared payload (`stale-shared`) instead of an error
-- once the daily budget is exhausted, each isolate stops asking the Durable Object until the UTC reset and serves its stale copy
+To trigger the scheduled handler locally, run `npm run dev -- --test-scheduled` and open `http://127.0.0.1:8787/__scheduled`. Each run that is due spends upstream quota.
 
 Important Cloudflare note:
 
 - Cache API entries are not globally replicated between data centers in the same way as tiered caching
-- stale fallback depends on cache retention and is best-effort
+- the edge cache is only a local copy; the Durable Object holds the shared one
 
 This behavior is based on Cloudflare’s Cache API and Workers cache guidance:
 
@@ -490,6 +490,7 @@ Common causes:
 - invalid `API_KEY_AA` on the internal models Worker
 - upstream Artificial Analysis outage or rate limit
 - outbound network issue
+- the scheduled refresh is failing; check the internal Worker logs for `Scheduled refresh failed` or `Scheduled refresh skipped`
 - the shared daily upstream refresh budget was exhausted before the next UTC reset
 - the public Worker could not reach the `MODELS_SERVICE` binding
 

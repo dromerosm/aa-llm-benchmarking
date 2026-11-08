@@ -18,6 +18,9 @@
       "new_sqlite_classes": ["UpstreamBudgetCoordinator"]
     }
   ],
+  "triggers": {
+    "crons": ["*/15 * * * *"]
+  },
   "observability": {
     "enabled": true
   }

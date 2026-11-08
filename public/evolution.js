@@ -4,11 +4,13 @@ const state = {
   refreshedAt: null,
   cache: null,
   apiStatus: null,
-  zoomDomain: null,
+  rangeModels: [],
+  timeWindow: null,
   chartView: null,
   chartPan: null,
+  brushDrag: null,
+  renderFrame: 0,
   suppressChartClickUntil: 0,
-  activeTimeRange: null,
 };
 
 const SESSION_CACHE_KEY = "aa-models-payload-v1";
@@ -26,6 +28,18 @@ const elements = {
   creatorsAllButton: document.querySelector("#timeline-creators-all"),
   creatorsNoneButton: document.querySelector("#timeline-creators-none"),
   timeRangeSelect: document.querySelector("#timeline-range-select"),
+  rangePanel: document.querySelector("#timeline-range"),
+  rangeFromInput: document.querySelector("#timeline-range-from"),
+  rangeToInput: document.querySelector("#timeline-range-to"),
+  rangeResetButton: document.querySelector("#timeline-range-reset"),
+  brushTrack: document.querySelector("#timeline-brush-track"),
+  brushBars: document.querySelector("#timeline-brush-bars"),
+  brushWindow: document.querySelector("#timeline-brush-window"),
+  brushStartHandle: document.querySelector("#timeline-brush-start"),
+  brushEndHandle: document.querySelector("#timeline-brush-end"),
+  brushStartMask: document.querySelector("#timeline-brush-mask-start"),
+  brushEndMask: document.querySelector("#timeline-brush-mask-end"),
+  brushAxis: document.querySelector("#timeline-brush-axis"),
   minIntelligenceInput: document.querySelector("#timeline-min-intelligence"),
   searchInput: document.querySelector("#timeline-search-input"),
   pricedOnly: document.querySelector("#timeline-priced-only"),
@@ -53,8 +67,13 @@ const LABEL_LIMITS = {
 };
 const DEFAULT_TOP_CREATOR_COUNT = 10;
 const DEFAULT_TIME_RANGE_MODE = "max";
-const MIN_X_ZOOM_SPAN_MS = 1000 * 60 * 60 * 24 * 45;
-const MIN_Y_ZOOM_SPAN = 6;
+const DAY_MS = 1000 * 60 * 60 * 24;
+// Space on each side of the selected dates so edge bubbles are not cut off.
+const CHART_X_PADDING_RATIO = 0.02;
+const CHART_MAX_X_TICKS = 8;
+const BRUSH_TICK_SPACING_PX = 96;
+// Below this span the range bar counts releases per day instead of per week.
+const BRUSH_DAILY_BINS_MAX_SPAN_MS = DAY_MS * 120;
 const PAN_DRAG_THRESHOLD_PX = 6;
 const PNG_EXPORT_SCALE = 2;
 const TIME_RANGE_PRESETS = Object.freeze({
@@ -73,9 +92,18 @@ const TIME_RANGE_PRESETS = Object.freeze({
     kind: "months",
     amount: 3,
   },
+  "6m": {
+    label: "6 months",
+    kind: "months",
+    amount: 6,
+  },
   max: {
     label: "Max",
     kind: "max",
+  },
+  custom: {
+    label: "Custom",
+    kind: "custom",
   },
 });
 
@@ -123,12 +151,17 @@ function formatPercent(value) {
   return `${numberFormat.format(value)}%`;
 }
 
-function formatMonth(date) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    year: "2-digit",
-  }).format(date);
-}
+const dayTickFormat = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  timeZone: "UTC",
+});
+
+const monthTickFormat = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
 
 function formatDate(dateString) {
   const date = dateString instanceof Date ? dateString : new Date(dateString);
@@ -136,8 +169,10 @@ function formatDate(dateString) {
     return "—";
   }
 
+  // Release dates are calendar days stored as UTC midnight.
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
+    timeZone: "UTC",
   }).format(date);
 }
 
@@ -276,6 +311,28 @@ function getReleaseTimestamp(model) {
   return Number.isNaN(releaseTimestamp) ? null : releaseTimestamp;
 }
 
+function startOfUtcDay(ms) {
+  return Math.floor(ms / DAY_MS) * DAY_MS;
+}
+
+function endOfUtcDay(ms) {
+  return startOfUtcDay(ms) + DAY_MS - 1;
+}
+
+function toDateInputValue(ms) {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function fromDateInputValue(value) {
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function clamp(value, lower, upper) {
+  return Math.min(upper, Math.max(lower, value));
+}
+
+// Whole UTC days from the first to the last release with an intelligence score.
 function getTimelineDataExtent() {
   const timestamps = getTimelineEligibleModels()
     .map(getReleaseTimestamp)
@@ -286,65 +343,125 @@ function getTimelineDataExtent() {
   }
 
   return {
-    min: Math.min(...timestamps),
-    max: Math.max(...timestamps),
+    min: startOfUtcDay(Math.min(...timestamps)),
+    max: endOfUtcDay(Math.max(...timestamps)),
   };
-}
-
-function getActiveTimeRangeMode() {
-  return elements.timeRangeSelect?.value || DEFAULT_TIME_RANGE_MODE;
 }
 
 function getPresetTimeRange(mode) {
   const preset = TIME_RANGE_PRESETS[mode];
   const extent = getTimelineDataExtent();
-  if (!preset || !extent) {
+  if (!preset || preset.kind === "custom" || !extent) {
     return null;
   }
 
-  const anchor = new Date(extent.max);
-  anchor.setHours(23, 59, 59, 999);
-
-  const start = new Date(anchor);
-  start.setHours(0, 0, 0, 0);
-
   if (preset.kind === "max") {
-    return {
-      mode,
-      label: preset.label,
-      startMs: extent.min,
-      endMs: anchor.getTime(),
-    };
+    return { startMs: extent.min, endMs: extent.max };
   }
 
-  if (preset.kind === "days") {
-    start.setDate(start.getDate() - (preset.amount - 1));
-  }
+  // Presets count back from the latest release, not from today.
+  const lastDay = startOfUtcDay(extent.max);
+  let startMs = lastDay - (preset.amount - 1) * DAY_MS;
 
   if (preset.kind === "months") {
-    start.setMonth(start.getMonth() - preset.amount);
+    const start = new Date(lastDay);
+    start.setUTCMonth(start.getUTCMonth() - preset.amount);
+    startMs = start.getTime();
   }
 
-  return {
-    mode,
-    label: preset.label,
-    startMs: start.getTime(),
-    endMs: anchor.getTime(),
-  };
+  return { startMs: Math.max(extent.min, startMs), endMs: extent.max };
 }
 
-function setActiveTimeRange(mode) {
-  const nextMode = TIME_RANGE_PRESETS[mode] ? mode : DEFAULT_TIME_RANGE_MODE;
+function isFullTimeWindow(range, extent) {
+  return Boolean(range && extent && range.startMs <= extent.min && range.endMs >= extent.max);
+}
+
+// Single source of truth for the dates shown: the preset menu, the date inputs,
+// the range bar, and zooming or panning the chart all go through here.
+function setTimeWindow(startMs, endMs, mode) {
+  const extent = getTimelineDataExtent();
+  if (!extent) {
+    state.timeWindow = null;
+    syncTimeRangeControls(null);
+    return;
+  }
+
+  const start = startOfUtcDay(clamp(startMs, extent.min, extent.max));
+  let end = endOfUtcDay(clamp(endMs, extent.min, extent.max));
+  if (end < start) {
+    end = endOfUtcDay(start);
+  }
+
+  const range = { startMs: start, endMs: end };
+  state.timeWindow = {
+    ...range,
+    mode: mode ?? (isFullTimeWindow(range, extent) ? "max" : "custom"),
+  };
+  syncTimeRangeControls(extent);
+}
+
+// Moves the range without changing its length, stopping at the data edges.
+function shiftTimeWindow(fromWindow, deltaMs) {
+  const extent = getTimelineDataExtent();
+  if (!extent || !fromWindow) {
+    return;
+  }
+
+  const length = fromWindow.endMs - fromWindow.startMs;
+  const start = clamp(
+    fromWindow.startMs + Math.round(deltaMs / DAY_MS) * DAY_MS,
+    extent.min,
+    Math.max(extent.min, extent.max - length),
+  );
+  setTimeWindow(start, start + length);
+}
+
+function applyTimeRangePreset(mode) {
+  if (mode === "custom") {
+    if (state.timeWindow) {
+      setTimeWindow(state.timeWindow.startMs, state.timeWindow.endMs, "custom");
+    }
+    return;
+  }
+
+  const range = getPresetTimeRange(TIME_RANGE_PRESETS[mode] ? mode : DEFAULT_TIME_RANGE_MODE);
+  if (range) {
+    setTimeWindow(range.startMs, range.endMs, TIME_RANGE_PRESETS[mode] ? mode : DEFAULT_TIME_RANGE_MODE);
+  } else {
+    setTimeWindow(0, 0);
+  }
+}
+
+function syncTimeRangeControls(extent) {
+  const range = state.timeWindow;
 
   if (elements.timeRangeSelect) {
-    elements.timeRangeSelect.value = nextMode;
+    elements.timeRangeSelect.value = range?.mode || DEFAULT_TIME_RANGE_MODE;
+  }
+
+  for (const input of [elements.rangeFromInput, elements.rangeToInput]) {
+    if (!input) {
+      continue;
+    }
+    input.disabled = !extent;
+    input.min = extent ? toDateInputValue(extent.min) : "";
+    input.max = extent ? toDateInputValue(extent.max) : "";
+  }
+
+  if (elements.rangeFromInput) {
+    elements.rangeFromInput.value = range ? toDateInputValue(range.startMs) : "";
+  }
+  if (elements.rangeToInput) {
+    elements.rangeToInput.value = range ? toDateInputValue(range.endMs) : "";
+  }
+  if (elements.rangeResetButton) {
+    elements.rangeResetButton.disabled = !extent || isFullTimeWindow(range, extent);
   }
 }
 
-function getActiveTimeRange() {
-  const mode = getActiveTimeRangeMode();
-
-  return getPresetTimeRange(mode);
+function isTimeWindowNarrowed() {
+  const extent = getTimelineDataExtent();
+  return Boolean(state.timeWindow && extent && !isFullTimeWindow(state.timeWindow, extent));
 }
 
 function describeTimeRange(range) {
@@ -352,7 +469,8 @@ function describeTimeRange(range) {
     return "All release dates";
   }
 
-  return `${range.label} · ${formatDate(range.startMs)} to ${formatDate(range.endMs)}`;
+  const label = TIME_RANGE_PRESETS[range.mode]?.label || "Custom";
+  return `${label} · ${formatDate(range.startMs)} to ${formatDate(range.endMs)}`;
 }
 
 function isModelWithinTimeRange(model, range) {
@@ -619,11 +737,58 @@ function radiusScale(price, maxPrice) {
   return minRadius + 2 + normalized * (maxRadius - minRadius - 2);
 }
 
-function createTicks(minDate, maxDate, count = 6) {
-  const start = minDate.getTime();
-  const end = maxDate.getTime();
-  const step = (end - start) / Math.max(1, count - 1);
-  return Array.from({ length: count }, (_, index) => new Date(start + index * step));
+const TIME_TICK_STEPS = [
+  { unit: "day", amount: 1 },
+  { unit: "day", amount: 2 },
+  { unit: "week", amount: 1 },
+  { unit: "week", amount: 2 },
+  { unit: "month", amount: 1 },
+  { unit: "month", amount: 2 },
+  { unit: "month", amount: 3 },
+  { unit: "month", amount: 6 },
+  { unit: "month", amount: 12 },
+];
+
+function buildTimeTicks(minMs, maxMs, step) {
+  const ticks = [];
+
+  if (step.unit === "month") {
+    const cursor = new Date(startOfUtcDay(minMs));
+    cursor.setUTCDate(1);
+    while (cursor.getUTCMonth() % step.amount !== 0 || cursor.getTime() < minMs) {
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+    }
+    while (cursor.getTime() <= maxMs) {
+      ticks.push(cursor.getTime());
+      cursor.setUTCMonth(cursor.getUTCMonth() + step.amount);
+    }
+    return ticks;
+  }
+
+  const stepMs = (step.unit === "week" ? 7 : 1) * step.amount * DAY_MS;
+  let cursor = startOfUtcDay(minMs);
+  if (step.unit === "week") {
+    // Weeks start on Monday; 1970-01-01 was a Thursday.
+    const dayOfWeek = (Math.floor(cursor / DAY_MS) + 3) % 7;
+    cursor -= dayOfWeek * DAY_MS;
+  }
+  while (cursor < minMs) {
+    cursor += stepMs;
+  }
+  for (; cursor <= maxMs; cursor += stepMs) {
+    ticks.push(cursor);
+  }
+  return ticks;
+}
+
+// Calendar-aligned ticks (days, weeks, or months) so labels never repeat.
+function createTimeTicks(minMs, maxMs, maxTicks) {
+  const step =
+    TIME_TICK_STEPS.find((candidate) => buildTimeTicks(minMs, maxMs, candidate).length <= maxTicks) ||
+    TIME_TICK_STEPS[TIME_TICK_STEPS.length - 1];
+  const format = step.unit === "month" ? monthTickFormat : dayTickFormat;
+
+  return buildTimeTicks(minMs, maxMs, step).map((ms) => ({ ms, label: format.format(ms) }));
 }
 
 function getChartPlotGeometry() {
@@ -654,60 +819,33 @@ function isPointerInsidePlot(clientX, clientY, geometry) {
   );
 }
 
-function getBaseChartDomain(models) {
-  const dateValues = models.map((model) => new Date(model.releaseDate).getTime());
-  const intelligenceValues = models.map((model) => model.intelligence);
-
-  return {
-    xMin: Math.min(...dateValues),
-    xMax: Math.max(...dateValues),
-    yMin: Math.max(0, Math.floor(Math.min(...intelligenceValues) - 3)),
-    yMax: Math.ceil(Math.max(...intelligenceValues) + 2),
-  };
+function getChartXPadding(startMs, endMs) {
+  return Math.max(DAY_MS / 2, (endMs - startMs) * CHART_X_PADDING_RATIO);
 }
 
-function normalizeZoomDomain(baseDomain, zoomDomain) {
-  if (!zoomDomain) {
-    return baseDomain;
-  }
+// The range bar uses the same padding as the chart at "Max", so dates line up.
+function getBrushDomain(extent) {
+  const padding = getChartXPadding(extent.min, extent.max);
+  return { min: extent.min - padding, max: extent.max + padding };
+}
 
-  const baseXSpan = baseDomain.xMax - baseDomain.xMin;
-  const baseYSpan = baseDomain.yMax - baseDomain.yMin;
-  const minXSpan = Math.min(MIN_X_ZOOM_SPAN_MS, baseXSpan);
-  const minYSpan = Math.min(MIN_Y_ZOOM_SPAN, baseYSpan);
+function getChartDomain(models) {
+  const range = state.timeWindow;
+  const releaseTimes = models.map((model) => new Date(model.releaseDate).getTime());
+  const xMin = range ? range.startMs : Math.min(...releaseTimes);
+  const xMax = range ? range.endMs : Math.max(...releaseTimes);
+  const xPadding = getChartXPadding(xMin, xMax);
 
-  let xSpan = Math.min(baseXSpan, Math.max(minXSpan, zoomDomain.xMax - zoomDomain.xMin));
-  let ySpan = Math.min(baseYSpan, Math.max(minYSpan, zoomDomain.yMax - zoomDomain.yMin));
-  let xMin = zoomDomain.xMin;
-  let yMin = zoomDomain.yMin;
+  // The Y axis fits the points inside the selected dates.
+  const intelligenceValues = models.map((model) => model.intelligence);
+  const hasPoints = intelligenceValues.length > 0;
 
-  if (xMin < baseDomain.xMin) {
-    xMin = baseDomain.xMin;
-  }
-  if (xMin + xSpan > baseDomain.xMax) {
-    xMin = baseDomain.xMax - xSpan;
-  }
-
-  if (yMin < baseDomain.yMin) {
-    yMin = baseDomain.yMin;
-  }
-  if (yMin + ySpan > baseDomain.yMax) {
-    yMin = baseDomain.yMax - ySpan;
-  }
-
-  const normalized = {
-    xMin,
-    xMax: xMin + xSpan,
-    yMin,
-    yMax: yMin + ySpan,
+  return {
+    xMin: xMin - xPadding,
+    xMax: xMax + xPadding,
+    yMin: hasPoints ? Math.max(0, Math.floor(Math.min(...intelligenceValues) - 3)) : 0,
+    yMax: hasPoints ? Math.ceil(Math.max(...intelligenceValues) + 2) : 100,
   };
-
-  const isFullX = Math.abs(normalized.xMin - baseDomain.xMin) < 1 && Math.abs(normalized.xMax - baseDomain.xMax) < 1;
-  const isFullY =
-    Math.abs(normalized.yMin - baseDomain.yMin) < 0.001 &&
-    Math.abs(normalized.yMax - baseDomain.yMax) < 0.001;
-
-  return isFullX && isFullY ? baseDomain : normalized;
 }
 
 function buildLabelPlacements(points) {
@@ -1074,12 +1212,18 @@ function renderChart() {
   const visible = state.visibleModels;
   hideTooltip();
 
+  const plotWidth = chartConfig.width - chartConfig.marginLeft - chartConfig.marginRight;
+  const plotHeight = chartConfig.height - chartConfig.marginTop - chartConfig.marginBottom;
+
   if (!visible.length) {
-    state.chartView = null;
+    const hasOtherMatches = state.rangeModels.length > 0;
+    state.chartView = hasOtherMatches && state.timeWindow
+      ? { displayDomain: getChartDomain(visible), plotWidth, plotHeight }
+      : null;
     elements.chart.innerHTML = `
       <rect x="0" y="0" width="${chartConfig.width}" height="${chartConfig.height}" rx="28" fill="rgba(255,255,255,0.72)"></rect>
       <text x="${chartConfig.width / 2}" y="${chartConfig.height / 2}" text-anchor="middle" class="timeline-empty">
-        No models match the current filters.
+        ${hasOtherMatches ? "No models in the selected date range." : "No models match the current filters."}
       </text>
     `;
     return {
@@ -1088,54 +1232,14 @@ function renderChart() {
     };
   }
 
-  const baseDomain = getBaseChartDomain(visible);
-  const displayDomain = normalizeZoomDomain(baseDomain, state.zoomDomain);
-  state.zoomDomain =
-    displayDomain.xMin === baseDomain.xMin &&
-    displayDomain.xMax === baseDomain.xMax &&
-    displayDomain.yMin === baseDomain.yMin &&
-    displayDomain.yMax === baseDomain.yMax
-      ? null
-      : displayDomain;
-
-  const zoomedVisible = visible
-    .map((model, modelIndex) => ({ model, modelIndex }))
-    .filter(({ model }) => {
-      const releaseTime = new Date(model.releaseDate).getTime();
-      return (
-        releaseTime >= displayDomain.xMin &&
-        releaseTime <= displayDomain.xMax &&
-        model.intelligence >= displayDomain.yMin &&
-        model.intelligence <= displayDomain.yMax
-      );
-    });
-
-  if (!zoomedVisible.length) {
-    state.chartView = {
-      baseDomain,
-      displayDomain,
-      plotWidth: chartConfig.width - chartConfig.marginLeft - chartConfig.marginRight,
-      plotHeight: chartConfig.height - chartConfig.marginTop - chartConfig.marginBottom,
-    };
-    elements.chart.innerHTML = `
-      <rect x="0" y="0" width="${chartConfig.width}" height="${chartConfig.height}" rx="28" fill="rgba(255,255,255,0.72)"></rect>
-      <text x="${chartConfig.width / 2}" y="${chartConfig.height / 2}" text-anchor="middle" class="timeline-empty">
-        No models in the current zoom window.
-      </text>
-    `;
-    return {
-      labelledCount: 0,
-      visibleCount: 0,
-    };
-  }
+  const displayDomain = getChartDomain(visible);
+  const zoomedVisible = visible.map((model, modelIndex) => ({ model, modelIndex }));
 
   const positivePrices = zoomedVisible
     .map(({ model }) => model.priceBlended)
     .filter((value) => value !== null && value !== undefined && !Number.isNaN(value) && value > 0);
   const maxPrice = positivePrices.length ? Math.max(...positivePrices) : 0;
 
-  const plotWidth = chartConfig.width - chartConfig.marginLeft - chartConfig.marginRight;
-  const plotHeight = chartConfig.height - chartConfig.marginTop - chartConfig.marginBottom;
   const xScale = createLinearScale(
     displayDomain.xMin,
     displayDomain.xMax,
@@ -1149,7 +1253,6 @@ function renderChart() {
     chartConfig.marginTop,
   );
   state.chartView = {
-    baseDomain,
     displayDomain,
     plotWidth,
     plotHeight,
@@ -1190,7 +1293,12 @@ function renderChart() {
       .map((point) => [point.patternId, point]),
   ).values()];
 
-  const dateTicks = createTicks(new Date(displayDomain.xMin), new Date(displayDomain.xMax));
+  // Ticks stay inside the selected dates, not in the padding around them.
+  const dateTicks = createTimeTicks(
+    state.timeWindow?.startMs ?? displayDomain.xMin,
+    state.timeWindow?.endMs ?? displayDomain.xMax,
+    CHART_MAX_X_TICKS,
+  );
   const yTicks = Array.from(
     { length: 6 },
     (_, index) => displayDomain.yMin + ((displayDomain.yMax - displayDomain.yMin) / 5) * index,
@@ -1228,11 +1336,11 @@ function renderChart() {
         .join("")}
       ${dateTicks
         .map((tick) => {
-          const x = xScale(tick.getTime());
+          const x = xScale(tick.ms);
           return `
             <line x1="${x}" y1="${chartConfig.marginTop}" x2="${x}" y2="${chartConfig.marginTop + plotHeight}"></line>
             <text x="${x}" y="${chartConfig.marginTop + plotHeight + 36}" text-anchor="middle">${escapeHtml(
-              formatMonth(tick),
+              tick.label,
             )}</text>
           `;
         })
@@ -1294,15 +1402,91 @@ function renderChart() {
 
 function renderTimeline() {
   const chartState = renderChart();
-  const isZoomed = Boolean(state.zoomDomain);
-  elements.chartWrap.classList.toggle("is-pan-enabled", isZoomed);
-  if (!isZoomed) {
+  const isNarrowed = isTimeWindowNarrowed();
+  elements.chartWrap.classList.toggle("is-pan-enabled", isNarrowed);
+  if (!isNarrowed) {
     elements.chartWrap.classList.remove("is-panning");
   }
-  const timeRangeLabel = describeTimeRange(state.activeTimeRange);
+  renderBrush();
+  const timeRangeLabel = describeTimeRange(state.timeWindow);
   elements.caption.textContent = elements.showAllLabels.checked
-    ? `${chartState.visibleCount} visible points${isZoomed ? " in zoom" : ""} · all labels shown · ${timeRangeLabel}`
-    : `${chartState.visibleCount} visible points${isZoomed ? " in zoom" : ""} · ${chartState.labelledCount} labels shown · ${timeRangeLabel}`;
+    ? `${chartState.visibleCount} visible points · all labels shown · ${timeRangeLabel}`
+    : `${chartState.visibleCount} visible points · ${chartState.labelledCount} labels shown · ${timeRangeLabel}`;
+}
+
+// The range bar shows every release date as a per-week (or per-day) histogram
+// of the models that pass the other filters, with the selected dates on top.
+function renderBrush() {
+  const extent = getTimelineDataExtent();
+  const range = state.timeWindow;
+
+  if (!elements.rangePanel) {
+    return;
+  }
+
+  elements.rangePanel.hidden = !extent || !range;
+  if (!extent || !range) {
+    return;
+  }
+
+  const domain = getBrushDomain(extent);
+  const toPercent = (ms) => clamp(((ms - domain.min) / (domain.max - domain.min)) * 100, 0, 100);
+  const spanMs = extent.max + 1 - extent.min;
+  const binMs = spanMs > BRUSH_DAILY_BINS_MAX_SPAN_MS ? 7 * DAY_MS : DAY_MS;
+  const binCount = Math.max(1, Math.ceil(spanMs / binMs));
+  const counts = new Array(binCount).fill(0);
+
+  for (const model of state.rangeModels) {
+    const releaseTime = getReleaseTimestamp(model);
+    if (releaseTime !== null && releaseTime >= extent.min && releaseTime <= extent.max) {
+      counts[Math.min(binCount - 1, Math.floor((releaseTime - extent.min) / binMs))] += 1;
+    }
+  }
+
+  const maxCount = Math.max(1, ...counts);
+  const binWidth = (toPercent(extent.min + binMs) - toPercent(extent.min)) * 10;
+  elements.brushBars.innerHTML = counts
+    .map((count, index) => {
+      if (!count) {
+        return "";
+      }
+      const binStart = extent.min + index * binMs;
+      const isSelected = binStart <= range.endMs && binStart + binMs - 1 >= range.startMs;
+      const height = Math.max(6, Math.sqrt(count / maxCount) * 92);
+      return `<rect class="${isSelected ? "is-selected" : ""}" x="${toPercent(binStart) * 10 + binWidth * 0.12}" y="${
+        100 - height
+      }" width="${binWidth * 0.76}" height="${height}"></rect>`;
+    })
+    .join("");
+
+  const left = toPercent(range.startMs);
+  const right = toPercent(range.endMs + 1);
+  elements.brushWindow.style.left = `${left}%`;
+  elements.brushWindow.style.width = `${right - left}%`;
+  elements.brushStartMask.style.width = `${left}%`;
+  elements.brushEndMask.style.left = `${right}%`;
+  elements.brushStartHandle.style.left = `${left}%`;
+  elements.brushEndHandle.style.left = `${right}%`;
+
+  for (const [handle, value] of [
+    [elements.brushStartHandle, range.startMs],
+    [elements.brushEndHandle, range.endMs],
+  ]) {
+    handle.setAttribute("aria-valuemin", String(extent.min));
+    handle.setAttribute("aria-valuemax", String(extent.max));
+    handle.setAttribute("aria-valuenow", String(value));
+    handle.setAttribute("aria-valuetext", formatDate(value));
+  }
+  elements.brushWindow.setAttribute(
+    "aria-label",
+    `Selected dates ${formatDate(range.startMs)} to ${formatDate(range.endMs)}. Use the arrow keys to move them.`,
+  );
+
+  const trackWidth = elements.brushTrack.clientWidth || 800;
+  const maxTicks = Math.max(2, Math.floor(trackWidth / BRUSH_TICK_SPACING_PX));
+  elements.brushAxis.innerHTML = createTimeTicks(extent.min, extent.max, maxTicks)
+    .map((tick) => `<span style="left: ${toPercent(tick.ms)}%">${escapeHtml(tick.label)}</span>`)
+    .join("");
 }
 
 function buildTimelineExportStyles() {
@@ -1430,8 +1614,21 @@ async function downloadTimelineAsPng() {
   }
 }
 
+// Re-render at most once per frame while dragging or zooming.
+function scheduleRender() {
+  if (state.renderFrame) {
+    return;
+  }
+
+  state.renderFrame = requestAnimationFrame(() => {
+    state.renderFrame = 0;
+    applyFilters();
+  });
+}
+
+// The wheel zooms the dates only; the Y axis refits to the visible points.
 function zoomChartAtPointer(event) {
-  if (!state.chartView) {
+  if (!state.chartView || !state.timeWindow) {
     return;
   }
 
@@ -1443,37 +1640,18 @@ function zoomChartAtPointer(event) {
 
   event.preventDefault();
 
-  const { baseDomain, displayDomain } = state.chartView;
+  const { displayDomain } = state.chartView;
   const xRatio = (event.clientX - geometry.plotLeft) / (geometry.plotRight - geometry.plotLeft);
-  const yRatio = (event.clientY - geometry.plotTop) / (geometry.plotBottom - geometry.plotTop);
-  const currentXSpan = displayDomain.xMax - displayDomain.xMin;
-  const currentYSpan = displayDomain.yMax - displayDomain.yMin;
+  const anchor = displayDomain.xMin + (displayDomain.xMax - displayDomain.xMin) * xRatio;
   const zoomFactor = event.deltaY < 0 ? 0.82 : 1.22;
-  const newXSpan = currentXSpan * zoomFactor;
-  const newYSpan = currentYSpan * zoomFactor;
-  const anchorX = displayDomain.xMin + currentXSpan * xRatio;
-  const anchorY = displayDomain.yMax - currentYSpan * yRatio;
-  const anchorYRatioFromMin = 1 - yRatio;
-  const nextDomain = normalizeZoomDomain(baseDomain, {
-    xMin: anchorX - newXSpan * xRatio,
-    xMax: anchorX + newXSpan * (1 - xRatio),
-    yMin: anchorY - newYSpan * anchorYRatioFromMin,
-    yMax: anchorY + newYSpan * yRatio,
-  });
+  const { startMs, endMs } = state.timeWindow;
 
-  state.zoomDomain =
-    nextDomain.xMin === baseDomain.xMin &&
-    nextDomain.xMax === baseDomain.xMax &&
-    nextDomain.yMin === baseDomain.yMin &&
-    nextDomain.yMax === baseDomain.yMax
-      ? null
-      : nextDomain;
-
-  renderTimeline();
+  setTimeWindow(anchor - (anchor - startMs) * zoomFactor, anchor + (endMs - anchor) * zoomFactor);
+  scheduleRender();
 }
 
 function startChartPan(event) {
-  if (event.button !== 0 || !state.zoomDomain || !state.chartView) {
+  if (event.button !== 0 || !state.chartView || !isTimeWindowNarrowed()) {
     return;
   }
 
@@ -1482,23 +1660,19 @@ function startChartPan(event) {
     return;
   }
 
+  const { displayDomain } = state.chartView;
   state.chartPan = {
     pointerId: event.pointerId,
     startClientX: event.clientX,
     startClientY: event.clientY,
-    startDomain: { ...state.chartView.displayDomain },
-    baseDomain: state.chartView.baseDomain,
+    startWindow: { ...state.timeWindow },
+    msPerPixel: (displayDomain.xMax - displayDomain.xMin) / (geometry.plotRight - geometry.plotLeft),
     moved: false,
   };
 }
 
 function moveChartPan(event) {
   if (!state.chartPan || event.pointerId !== state.chartPan.pointerId) {
-    return;
-  }
-
-  const geometry = getChartPlotGeometry();
-  if (!geometry) {
     return;
   }
 
@@ -1516,26 +1690,8 @@ function moveChartPan(event) {
     elements.chartWrap.classList.add("is-panning");
   }
 
-  const xSpan = state.chartPan.startDomain.xMax - state.chartPan.startDomain.xMin;
-  const ySpan = state.chartPan.startDomain.yMax - state.chartPan.startDomain.yMin;
-  const xUnitsPerPixel = xSpan / (geometry.plotRight - geometry.plotLeft);
-  const yUnitsPerPixel = ySpan / (geometry.plotBottom - geometry.plotTop);
-  const nextDomain = normalizeZoomDomain(state.chartPan.baseDomain, {
-    xMin: state.chartPan.startDomain.xMin - deltaX * xUnitsPerPixel,
-    xMax: state.chartPan.startDomain.xMax - deltaX * xUnitsPerPixel,
-    yMin: state.chartPan.startDomain.yMin + deltaY * yUnitsPerPixel,
-    yMax: state.chartPan.startDomain.yMax + deltaY * yUnitsPerPixel,
-  });
-
-  state.zoomDomain =
-    nextDomain.xMin === state.chartPan.baseDomain.xMin &&
-    nextDomain.xMax === state.chartPan.baseDomain.xMax &&
-    nextDomain.yMin === state.chartPan.baseDomain.yMin &&
-    nextDomain.yMax === state.chartPan.baseDomain.yMax
-      ? null
-      : nextDomain;
-
-  renderTimeline();
+  shiftTimeWindow(state.chartPan.startWindow, -deltaX * state.chartPan.msPerPixel);
+  scheduleRender();
 }
 
 function endChartPan(event) {
@@ -1556,12 +1712,167 @@ function endChartPan(event) {
 }
 
 function resetChartZoom() {
-  if (!state.zoomDomain) {
+  if (!isTimeWindowNarrowed()) {
     return;
   }
 
-  state.zoomDomain = null;
-  renderTimeline();
+  applyTimeRangePreset("max");
+  applyFilters();
+}
+
+function getBrushTimeAt(clientX) {
+  const domain = getBrushDomain(getTimelineDataExtent());
+  const rect = elements.brushTrack.getBoundingClientRect();
+  const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+  return domain.min + ratio * (domain.max - domain.min);
+}
+
+// Snaps a position on the range bar to the nearest day boundary.
+function nearestDayBoundary(ms) {
+  return Math.round(ms / DAY_MS) * DAY_MS;
+}
+
+function startBrushDrag(event) {
+  if (event.button !== 0 || !state.timeWindow || !getTimelineDataExtent()) {
+    return;
+  }
+
+  const kind =
+    event.target === elements.brushStartHandle
+      ? "start"
+      : event.target === elements.brushEndHandle
+        ? "end"
+        : event.target === elements.brushWindow
+          ? "move"
+          : "create";
+
+  event.preventDefault();
+  event.target.focus?.({ preventScroll: true });
+  elements.brushTrack.setPointerCapture?.(event.pointerId);
+  elements.brushTrack.classList.add("is-dragging");
+  hideTooltip();
+
+  state.brushDrag = {
+    pointerId: event.pointerId,
+    kind,
+    originX: event.clientX,
+    originMs: getBrushTimeAt(event.clientX),
+    startWindow: { ...state.timeWindow },
+    moved: false,
+  };
+}
+
+function moveBrushDrag(event) {
+  const drag = state.brushDrag;
+  if (!drag || event.pointerId !== drag.pointerId) {
+    return;
+  }
+
+  if (!drag.moved && Math.abs(event.clientX - drag.originX) < 3) {
+    return;
+  }
+  drag.moved = true;
+
+  const ms = getBrushTimeAt(event.clientX);
+  const { startWindow } = drag;
+
+  if (drag.kind === "move") {
+    shiftTimeWindow(startWindow, ms - drag.originMs);
+  } else if (drag.kind === "start") {
+    setTimeWindow(Math.min(nearestDayBoundary(ms), startOfUtcDay(startWindow.endMs)), startWindow.endMs);
+  } else if (drag.kind === "end") {
+    setTimeWindow(startWindow.startMs, Math.max(nearestDayBoundary(ms) - 1, startWindow.startMs));
+  } else {
+    setTimeWindow(
+      nearestDayBoundary(Math.min(drag.originMs, ms)),
+      nearestDayBoundary(Math.max(drag.originMs, ms)) - 1,
+    );
+  }
+
+  scheduleRender();
+}
+
+function endBrushDrag(event) {
+  const drag = state.brushDrag;
+  if (!drag || event.pointerId !== drag.pointerId) {
+    return;
+  }
+
+  // A click outside the window centres the window on that date.
+  if (drag.kind === "create" && !drag.moved) {
+    const { startMs, endMs } = drag.startWindow;
+    shiftTimeWindow(drag.startWindow, drag.originMs - (startMs + (endMs - startMs) / 2));
+    scheduleRender();
+  }
+
+  elements.brushTrack.releasePointerCapture?.(event.pointerId);
+  elements.brushTrack.classList.remove("is-dragging");
+  state.brushDrag = null;
+}
+
+const BRUSH_KEY_STEPS_DAYS = {
+  ArrowLeft: -1,
+  ArrowDown: -1,
+  ArrowRight: 1,
+  ArrowUp: 1,
+  PageDown: -30,
+  PageUp: 30,
+};
+
+function handleBrushKeydown(event) {
+  const extent = getTimelineDataExtent();
+  const range = state.timeWindow;
+  if (!extent || !range) {
+    return;
+  }
+
+  let days = BRUSH_KEY_STEPS_DAYS[event.key];
+  const isEdgeKey = event.key === "Home" || event.key === "End";
+  if (days === undefined && !isEdgeKey) {
+    return;
+  }
+  if (days !== undefined && event.shiftKey && Math.abs(days) === 1) {
+    days *= 7;
+  }
+
+  event.preventDefault();
+  const lastDayStart = startOfUtcDay(range.endMs);
+
+  if (event.currentTarget === elements.brushStartHandle) {
+    const start = isEdgeKey
+      ? event.key === "Home" ? extent.min : lastDayStart
+      : range.startMs + days * DAY_MS;
+    setTimeWindow(Math.min(start, lastDayStart), range.endMs);
+  } else if (event.currentTarget === elements.brushEndHandle) {
+    const end = isEdgeKey
+      ? event.key === "Home" ? range.startMs : extent.max
+      : range.endMs + days * DAY_MS;
+    setTimeWindow(range.startMs, Math.max(end, range.startMs));
+  } else {
+    const delta = isEdgeKey
+      ? event.key === "Home" ? extent.min - range.startMs : extent.max - range.endMs
+      : days * DAY_MS;
+    shiftTimeWindow(range, delta);
+  }
+
+  scheduleRender();
+}
+
+function handleRangeInputChange(event) {
+  const range = state.timeWindow;
+  const value = fromDateInputValue(event.target.value);
+  if (!range || value === null) {
+    syncTimeRangeControls(getTimelineDataExtent());
+    return;
+  }
+
+  // Keep the two dates in order by moving the other one when they cross.
+  if (event.target === elements.rangeFromInput) {
+    setTimeWindow(value, Math.max(range.endMs, value));
+  } else {
+    setTimeWindow(Math.min(range.startMs, value), value);
+  }
+  applyFilters();
 }
 
 function applyFilters() {
@@ -1571,13 +1882,9 @@ function applyFilters() {
     elements.minIntelligenceInput.value.trim() !== "" && !Number.isNaN(minIntelligenceValue);
   const search = elements.searchInput.value.trim().toLowerCase();
   const pricedOnly = elements.pricedOnly.checked;
-  const timeRange = getActiveTimeRange();
 
-  state.activeTimeRange = timeRange;
-
-  state.visibleModels = state.models
+  state.rangeModels = state.models
     .filter((model) => model.releaseDate && model.intelligence !== null)
-    .filter((model) => isModelWithinTimeRange(model, timeRange))
     .filter((model) => selectedCreators.has(model.creator))
     .filter((model) => (hasMinIntelligenceFilter ? model.intelligence >= minIntelligenceValue : true))
     .filter((model) => (pricedOnly ? model.priceBlended !== null && model.priceBlended > 0 : true))
@@ -1585,6 +1892,7 @@ function applyFilters() {
       search ? `${model.name} ${model.creator}`.toLowerCase().includes(search) : true,
     )
     .sort((a, b) => new Date(a.releaseDate) - new Date(b.releaseDate));
+  state.visibleModels = state.rangeModels.filter((model) => isModelWithinTimeRange(model, state.timeWindow));
 
   renderTimeline();
 
@@ -1599,7 +1907,7 @@ function applyPayload(payload) {
 
   writeCachedPayload(payload);
 
-  setActiveTimeRange(getActiveTimeRangeMode());
+  applyTimeRangePreset(elements.timeRangeSelect?.value || DEFAULT_TIME_RANGE_MODE);
   renderHeroMeta();
   renderHeroSpotlight();
   populateCreatorFilter();
@@ -1620,9 +1928,22 @@ function bindEvents() {
     applyFilters();
   });
   elements.timeRangeSelect.addEventListener("change", () => {
-    setActiveTimeRange(elements.timeRangeSelect.value);
+    applyTimeRangePreset(elements.timeRangeSelect.value);
     applyFilters();
   });
+  elements.rangeFromInput?.addEventListener("change", handleRangeInputChange);
+  elements.rangeToInput?.addEventListener("change", handleRangeInputChange);
+  elements.rangeResetButton?.addEventListener("click", resetChartZoom);
+  if (elements.brushTrack) {
+    elements.brushTrack.addEventListener("pointerdown", startBrushDrag);
+    elements.brushTrack.addEventListener("pointermove", moveBrushDrag);
+    elements.brushTrack.addEventListener("pointerup", endBrushDrag);
+    elements.brushTrack.addEventListener("pointercancel", endBrushDrag);
+    for (const element of [elements.brushStartHandle, elements.brushEndHandle, elements.brushWindow]) {
+      element.addEventListener("keydown", handleBrushKeydown);
+    }
+    new ResizeObserver(() => renderBrush()).observe(elements.brushTrack);
+  }
   elements.creatorSearchInput.addEventListener("input", filterCreatorOptions);
   elements.creatorDropdown.addEventListener("toggle", () => {
     elements.creatorDropdown.classList.toggle("is-open", elements.creatorDropdown.open);

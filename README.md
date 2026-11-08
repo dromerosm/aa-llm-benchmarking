@@ -421,7 +421,10 @@ The main view includes:
 The timeline view includes:
 
 - creator multi-select
-- a time range combo with 7 days, 30 days, 3 months, and Max
+- a time range combo with 7 days, 30 days, 3 months, 6 months, Max, and Custom
+- From and To date inputs, plus a range bar under the chart with a histogram of releases; drag the window or its edges to zoom in time
+- scroll on the chart to zoom the dates, drag to pan, and double-click to show all dates; the Y axis refits to the visible points
+- all of these controls share one date window, so they always agree
 - search and minimum intelligence filters
 - priced-only toggle
 - interactive labels and tooltip

@@ -190,7 +190,9 @@
             <option value="7d">7 days</option>
             <option value="30d">30 days</option>
             <option value="3m">3 months</option>
+            <option value="6m">6 months</option>
             <option value="max" selected>Max</option>
+            <option value="custom">Custom</option>
           </select>
         </div>
 
@@ -276,6 +278,57 @@
             role="img"
             aria-label="Scatter plot of model intelligence over time"
           ></svg>
+        </div>
+        <div id="timeline-range" class="timeline-range" hidden>
+          <div class="timeline-range-header">
+            <p class="timeline-range-title" id="timeline-range-title">Date range</p>
+            <div class="timeline-range-fields">
+              <label class="timeline-range-field">
+                <span>From</span>
+                <input id="timeline-range-from" type="date" />
+              </label>
+              <label class="timeline-range-field">
+                <span>To</span>
+                <input id="timeline-range-to" type="date" />
+              </label>
+              <button id="timeline-range-reset" class="control-action-button timeline-range-reset" type="button">
+                Show all dates
+              </button>
+            </div>
+          </div>
+          <div class="timeline-brush" role="group" aria-labelledby="timeline-range-title">
+            <div id="timeline-brush-track" class="timeline-brush-track">
+              <svg
+                id="timeline-brush-bars"
+                class="timeline-brush-bars"
+                viewBox="0 0 1000 100"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              ></svg>
+              <div id="timeline-brush-mask-start" class="timeline-brush-mask is-start"></div>
+              <div id="timeline-brush-mask-end" class="timeline-brush-mask is-end"></div>
+              <div id="timeline-brush-window" class="timeline-brush-window" tabindex="0"></div>
+              <div
+                id="timeline-brush-start"
+                class="timeline-brush-handle"
+                role="slider"
+                tabindex="0"
+                aria-label="First release date shown"
+              ></div>
+              <div
+                id="timeline-brush-end"
+                class="timeline-brush-handle"
+                role="slider"
+                tabindex="0"
+                aria-label="Last release date shown"
+              ></div>
+            </div>
+            <div id="timeline-brush-axis" class="timeline-brush-axis" aria-hidden="true"></div>
+          </div>
+          <p class="timeline-range-hint">
+            Bars show how many models were released in each period. Drag the highlighted window or its edges to choose the dates.
+            On the chart, scroll to zoom in time, drag to pan, and double-click to show all dates.
+          </p>
         </div>
       </section>
 
